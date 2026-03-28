@@ -205,7 +205,7 @@ export const useStore = create<AppState>()(
         return id;
       },
 
-      placeOrderAsync: async (address, slot, name, email) => {
+      placeOrderAsync: async (address, slot, name, _email) => {
         const state = get();
         const configured = isTradlyConfigured();
         const user = state.tradlyUser;

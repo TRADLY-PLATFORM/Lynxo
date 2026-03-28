@@ -13,13 +13,13 @@ export function isTradlyConfigured(): boolean {
 // ─── Error class ─────────────────────────────────────────────────────────────
 
 export class TradlyApiError extends Error {
-  constructor(
-    public readonly status: number,
-    message: string,
-    public readonly body?: unknown,
-  ) {
+  readonly status: number;
+  readonly body?: unknown;
+  constructor(status: number, message: string, body?: unknown) {
     super(message);
     this.name = 'TradlyApiError';
+    this.status = status;
+    this.body = body;
   }
 }
 
