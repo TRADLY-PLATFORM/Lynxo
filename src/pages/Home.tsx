@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react';
-import { Search, Bell } from 'lucide-react';
+import { useState, useMemo, useEffect, useRef } from 'react';
+import { Search, Bell, RefreshCw } from 'lucide-react';
 import { PRODUCTS, CATEGORIES } from '../data/products';
 import { ProductCard } from '../components/ProductCard';
 import { useStore } from '../store/useStore';
@@ -7,9 +7,46 @@ import { useStore } from '../store/useStore';
 export function HomePage() {
   const [activeCategory, setActiveCategory] = useState('all');
   const [query, setQuery] = useState('');
-  const { orders } = useStore();
+  const { orders, tradlyProducts, productsLoading, productsError, fetchProducts } = useStore();
 
+  // Debounce ref for filter changes
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Derive a Tradly category_id string from the active local category
+  function getTradlyCategoryParam(catId: string): string | undefined {
+    // We don't have real Tradly category IDs mapped yet — pass undefined and let
+    // the search_key filter do the work when a specific category is selected.
+    if (catId === 'all') return undefined;
+    return undefined; // Tradly category IDs not pre-known; use search instead
+  }
+
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      const params: { category_id?: string; search_key?: string } = {};
+      const catParam = getTradlyCategoryParam(activeCategory);
+      if (catParam) params.category_id = catParam;
+      // Use category label as search hint when not 'all'
+      if (activeCategory !== 'all' && !catParam) {
+        const cat = CATEGORIES.find((c) => c.id === activeCategory);
+        if (cat) params.search_key = query.trim() ? `${cat.label} ${query.trim()}` : cat.label;
+      } else if (query.trim()) {
+        params.search_key = query.trim();
+      }
+      fetchProducts(params);
+    }, 400);
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeCategory, query]);
+
+  // Use Tradly products if available, otherwise fall back to static
+  const sourcedProducts = tradlyProducts.length > 0 ? tradlyProducts : PRODUCTS;
+
+  // For static products, apply local filtering
   const filtered = useMemo(() => {
+    // When using Tradly products the API already filters; just return them
+    if (tradlyProducts.length > 0) return tradlyProducts;
+
     let list = PRODUCTS;
     if (activeCategory !== 'all') {
       list = list.filter((p) => p.category === activeCategory);
@@ -24,9 +61,11 @@ export function HomePage() {
       );
     }
     return list;
-  }, [activeCategory, query]);
+  }, [activeCategory, query, tradlyProducts]);
 
   const activeOrder = orders.find((o) => o.status !== 'delivered');
+  const hasProducts = filtered.length > 0;
+  const showError = !!productsError && tradlyProducts.length === 0 && sourcedProducts === PRODUCTS;
 
   return (
     <div className="page-enter pb-safe overflow-y-auto scrollbar-hide h-dvh">
@@ -85,9 +124,24 @@ export function HomePage() {
         <ActiveOrderBanner orderId={activeOrder.id} status={activeOrder.status} />
       )}
 
+      {/* Error banner */}
+      {showError && (
+        <div className="mx-4 mt-3 bg-red-50 border border-red-200 rounded-2xl px-4 py-3 flex items-center justify-between">
+          <p className="text-red-600 text-sm">⚠️ Could not load live products</p>
+          <button
+            onClick={() => fetchProducts()}
+            className="flex items-center gap-1 text-red-600 text-sm font-semibold"
+          >
+            <RefreshCw size={13} /> Retry
+          </button>
+        </div>
+      )}
+
       {/* Product grid */}
       <div className="px-4 pt-4">
-        {filtered.length === 0 ? (
+        {productsLoading ? (
+          <ProductSkeleton />
+        ) : !hasProducts ? (
           <div className="flex flex-col items-center justify-center py-20 text-slate-400">
             <span className="text-5xl mb-3">🔍</span>
             <p className="font-semibold">No results found</p>
@@ -101,6 +155,27 @@ export function HomePage() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function ProductSkeleton() {
+  return (
+    <div className="grid grid-cols-2 gap-3">
+      {[1, 2, 3].map((i) => (
+        <div
+          key={i}
+          className="rounded-2xl bg-slate-100 animate-pulse overflow-hidden"
+          style={{ height: 200 }}
+        >
+          <div className="h-28 bg-slate-200" />
+          <div className="p-3 space-y-2">
+            <div className="h-3 bg-slate-200 rounded-full w-3/4" />
+            <div className="h-3 bg-slate-200 rounded-full w-1/2" />
+            <div className="h-7 bg-slate-200 rounded-xl mt-2" />
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

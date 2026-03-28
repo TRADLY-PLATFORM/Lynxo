@@ -1,6 +1,21 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { Product, Variant } from '../data/products';
+import {
+  isTradlyConfigured,
+  getListings,
+  getCategories,
+  seedCategoryMap,
+  adaptListingToProduct,
+  loginUser,
+  registerUser,
+  verifyUser,
+  createAddress,
+  addToTradlyCart,
+  clearTradlyCart,
+  checkoutTradlyCart,
+} from '../lib/tradlyApi';
+import type { GetListingsParams } from '../lib/tradlyApi';
 
 export interface CartItem {
   product: Product;
@@ -36,6 +51,21 @@ export const ORDER_STATUS_STEPS: { key: OrderStatus; label: string; icon: string
 
 export type AppPage = 'home' | 'cart' | 'checkout' | 'tracking';
 
+export interface TradlyUserSession {
+  authKey: string;
+  refreshKey: string;
+  userId: string;
+  firstName: string;
+  email: string;
+}
+
+export interface VerifySession {
+  verifyId: number;
+  email: string;
+  password: string;
+  pendingOrderData: { address: string; slot: string; name: string } | null;
+}
+
 interface AppState {
   /* Navigation */
   page: AppPage;
@@ -58,8 +88,33 @@ interface AppState {
   /* Orders */
   orders: Order[];
   currentOrderId: string | null;
+  /** Synchronous local-only order placement (backward compat) */
   placeOrder: (address: string, slot: string) => string;
+  /** Async order placement with Tradly integration */
+  placeOrderAsync: (address: string, slot: string, name: string, email: string) => Promise<string>;
   advanceOrderStatus: (orderId: string) => void;
+
+  /* Tradly user session */
+  tradlyUser: TradlyUserSession | null;
+  verifySession: VerifySession | null;
+  setTradlyUser: (u: AppState['tradlyUser']) => void;
+  setVerifySession: (v: AppState['verifySession']) => void;
+  loginOrRegisterUser: (
+    email: string,
+    password: string,
+    firstName: string,
+    lastName: string,
+  ) => Promise<'logged_in' | 'needs_verify'>;
+  verifyAndCompleteUser: (code: number) => Promise<void>;
+
+  /* Products from Tradly */
+  tradlyProducts: Product[];
+  productsLoading: boolean;
+  productsError: string | null;
+  fetchProducts: (params?: GetListingsParams) => Promise<void>;
+
+  /* Tradly order tracking */
+  tradlyOrderId: string | null;
 }
 
 export const useStore = create<AppState>()(
@@ -150,6 +205,76 @@ export const useStore = create<AppState>()(
         return id;
       },
 
+      placeOrderAsync: async (address, slot, name, email) => {
+        const state = get();
+        const configured = isTradlyConfigured();
+        const user = state.tradlyUser;
+
+        let realTradlyOrderId: string | null = null;
+
+        if (configured && user) {
+          try {
+            // Clear then rebuild Tradly cart
+            try { await clearTradlyCart(user.authKey); } catch { /* ignore */ }
+
+            for (const item of state.cart) {
+              await addToTradlyCart(
+                parseInt(item.product.id, 10),
+                parseInt(item.variant.id.replace('-default', ''), 10) || parseInt(item.product.id, 10),
+                item.quantity,
+                user.authKey,
+              );
+            }
+
+            const tradlyAddr = await createAddress(
+              { name, formatted_address: address },
+              user.authKey,
+            );
+
+            const paymentMethodId = parseInt(import.meta.env.VITE_TRADLY_PAYMENT_METHOD_ID ?? '1', 10);
+            const shippingMethodId = parseInt(import.meta.env.VITE_TRADLY_SHIPPING_METHOD_ID ?? '1', 10);
+
+            const tradlyOrder = await checkoutTradlyCart(
+              {
+                payment_method_id: paymentMethodId,
+                shipping_method_id: shippingMethodId,
+                shipping_address_id: tradlyAddr.id,
+              },
+              user.authKey,
+            );
+
+            realTradlyOrderId = String(tradlyOrder.id);
+          } catch (err) {
+            // Log but don't block local order creation
+            console.warn('[Tradly] Checkout failed, falling back to local order:', err);
+          }
+        }
+
+        // Always create a local order for UI
+        const id = `ORD-${Date.now()}`;
+        const now = new Date();
+        const eta = new Date(now.getTime() + 45 * 60_000);
+        const order: Order = {
+          id,
+          items: [...state.cart],
+          total: state.cartTotal(),
+          deliverySlot: slot,
+          address,
+          status: 'placed',
+          placedAt: now.toISOString(),
+          estimatedDelivery: eta.toISOString(),
+        };
+
+        set((s) => ({
+          orders: [order, ...s.orders],
+          currentOrderId: id,
+          cart: [],
+          tradlyOrderId: realTradlyOrderId ?? s.tradlyOrderId,
+        }));
+
+        return id;
+      },
+
       advanceOrderStatus: (orderId) => {
         const statusOrder: OrderStatus[] = [
           'placed',
@@ -167,10 +292,96 @@ export const useStore = create<AppState>()(
           }),
         }));
       },
+
+      /* ─── Tradly user session ─── */
+      tradlyUser: null,
+      verifySession: null,
+
+      setTradlyUser: (u) => set({ tradlyUser: u }),
+      setVerifySession: (v) => set({ verifySession: v }),
+
+      loginOrRegisterUser: async (email, password, firstName, lastName) => {
+        try {
+          const user = await loginUser({ email, password });
+          set({
+            tradlyUser: {
+              authKey: user.key.auth_key,
+              refreshKey: user.key.refresh_key,
+              userId: user.id,
+              firstName: user.first_name,
+              email: user.email,
+            },
+          });
+          return 'logged_in';
+        } catch {
+          // Login failed — try register
+          const { verify_id } = await registerUser({ email, password, first_name: firstName, last_name: lastName });
+          set({
+            verifySession: {
+              verifyId: verify_id,
+              email,
+              password,
+              pendingOrderData: null,
+            },
+          });
+          return 'needs_verify';
+        }
+      },
+
+      verifyAndCompleteUser: async (code) => {
+        const vs = get().verifySession;
+        if (!vs) throw new Error('No verify session active');
+        const user = await verifyUser(vs.verifyId, code);
+        set({
+          tradlyUser: {
+            authKey: user.key.auth_key,
+            refreshKey: user.key.refresh_key,
+            userId: user.id,
+            firstName: user.first_name,
+            email: user.email,
+          },
+          verifySession: null,
+        });
+      },
+
+      /* ─── Products ─── */
+      tradlyProducts: [],
+      productsLoading: false,
+      productsError: null,
+
+      fetchProducts: async (params = {}) => {
+        if (!isTradlyConfigured()) {
+          set({ productsError: 'Tradly API not configured', productsLoading: false });
+          return;
+        }
+        set({ productsLoading: true, productsError: null });
+        try {
+          // Seed category map in background (ignore errors)
+          try {
+            const cats = await getCategories();
+            seedCategoryMap(cats);
+          } catch { /* non-fatal */ }
+
+          const listings = await getListings(params);
+          const products = listings.map((l) => adaptListingToProduct(l));
+          set({ tradlyProducts: products, productsLoading: false });
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : 'Failed to load products';
+          set({ productsError: msg, productsLoading: false });
+        }
+      },
+
+      /* ─── Tradly order ID ─── */
+      tradlyOrderId: null,
     }),
     {
       name: 'lynxo-store',
-      partialize: (s) => ({ cart: s.cart, orders: s.orders }),
+      partialize: (s) => ({
+        cart: s.cart,
+        orders: s.orders,
+        tradlyUser: s.tradlyUser,
+        tradlyOrderId: s.tradlyOrderId,
+      }),
     },
   ),
 );

@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { MapPin, Clock, ChevronRight } from 'lucide-react';
+import { MapPin, Clock, ChevronRight, User, Mail } from 'lucide-react';
 import { useStore } from '../store/useStore';
+import { isTradlyConfigured } from '../lib/tradlyApi';
 
 const DELIVERY_SLOTS = [
   { id: 's1', label: 'ASAP',          sublabel: '30–45 mins',       icon: '⚡' },
@@ -18,17 +19,27 @@ const PAYMENT_METHODS = [
 ];
 
 export function CheckoutPage() {
-  const { cart, cartTotal, placeOrder, setPage, currentOrderId } = useStore();
+  const {
+    cart, cartTotal, placeOrder, placeOrderAsync, setPage, currentOrderId,
+    tradlyUser, verifySession, loginOrRegisterUser, verifyAndCompleteUser,
+    setVerifySession,
+  } = useStore();
+
+  const [name, setName]         = useState('');
+  const [email, setEmail]       = useState('');
   const [address, setAddress]   = useState('');
   const [slot, setSlot]         = useState('s1');
   const [payment, setPayment]   = useState('upi');
   const [loading, setLoading]   = useState(false);
   const [error, setError]       = useState('');
+  const [otpCode, setOtpCode]   = useState('');
+  const [otpError, setOtpError] = useState('');
 
   const total = cartTotal();
   const deliveryFee = total >= 500 ? 0 : 30;
   const grandTotal = total + deliveryFee;
   const selectedSlot = DELIVERY_SLOTS.find((s) => s.id === slot)!;
+  const tradlyEnabled = isTradlyConfigured();
 
   if (cart.length === 0 && !currentOrderId) {
     return (
@@ -46,19 +57,120 @@ export function CheckoutPage() {
     );
   }
 
-  const handlePlaceOrder = () => {
-    if (!address.trim()) {
-      setError('Please enter a delivery address');
+  // OTP verification flow
+  const handleVerifyOtp = async () => {
+    const code = parseInt(otpCode, 10);
+    if (!otpCode || otpCode.length < 6 || isNaN(code)) {
+      setOtpError('Enter a valid 6-digit code');
       return;
     }
+    setOtpError('');
+    setLoading(true);
+    try {
+      await verifyAndCompleteUser(code);
+      // Now place the actual order
+      await placeOrderAsync(address, selectedSlot.label, name, email);
+      setPage('tracking');
+    } catch (err) {
+      setOtpError(err instanceof Error ? err.message : 'Verification failed. Try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handlePlaceOrder = async () => {
+    if (!name.trim()) { setError('Please enter your name'); return; }
+    if (!email.trim() || !email.includes('@')) { setError('Please enter a valid email'); return; }
+    if (!address.trim()) { setError('Please enter a delivery address'); return; }
     setError('');
     setLoading(true);
-    setTimeout(() => {
-      placeOrder(address, selectedSlot.label);
-      setLoading(false);
+
+    try {
+      if (tradlyEnabled && !tradlyUser) {
+        const firstName = name.split(' ')[0];
+        const lastName = name.split(' ').slice(1).join(' ') || '.';
+        const password = btoa(email + '_lynxo_2024');
+
+        const result = await loginOrRegisterUser(email, password, firstName, lastName);
+
+        if (result === 'needs_verify') {
+          // Save pending order data in verify session
+          setVerifySession({
+            ...(useStore.getState().verifySession!),
+            pendingOrderData: { address, slot: selectedSlot.label, name },
+          });
+          setLoading(false);
+          return; // OTP UI will show via verifySession in store
+        }
+      }
+
+      // Logged in or Tradly not enabled — place order
+      await placeOrderAsync(address, selectedSlot.label, name, email);
       setPage('tracking');
-    }, 1200);
+    } catch (err) {
+      console.warn('[Checkout] Tradly auth failed, falling back to local order:', err);
+      // Graceful fallback: place local order anyway
+      placeOrder(address, selectedSlot.label);
+      setPage('tracking');
+    } finally {
+      setLoading(false);
+    }
   };
+
+  // OTP screen
+  if (verifySession) {
+    return (
+      <div className="page-enter h-dvh flex flex-col overflow-hidden">
+        <div className="px-4 pt-6 pb-4 bg-white border-b border-slate-100 safe-top flex-shrink-0">
+          <h1 className="text-xl font-black text-slate-900">Verify Email</h1>
+        </div>
+        <div className="flex-1 overflow-y-auto scrollbar-hide px-4 py-6 flex flex-col items-center">
+          <div className="w-full max-w-sm bg-white rounded-2xl p-6 shadow-card border border-slate-100">
+            <div className="text-center mb-6">
+              <span className="text-5xl">📬</span>
+              <h2 className="text-lg font-bold text-slate-800 mt-3">Check your inbox</h2>
+              <p className="text-slate-500 text-sm mt-1">
+                We sent a 6-digit code to<br />
+                <span className="font-semibold text-slate-700">{verifySession.email}</span>
+              </p>
+            </div>
+
+            <input
+              type="number"
+              placeholder="000000"
+              value={otpCode}
+              onChange={(e) => { setOtpCode(e.target.value.slice(0, 6)); setOtpError(''); }}
+              className={`w-full text-center text-2xl font-bold tracking-widest px-4 py-4 bg-slate-50 rounded-2xl outline-none focus:ring-2 mb-3 ${
+                otpError ? 'ring-2 ring-red-300' : 'focus:ring-primary-300'
+              }`}
+              maxLength={6}
+            />
+
+            {otpError && <p className="text-red-500 text-xs text-center mb-3">{otpError}</p>}
+
+            <button
+              onClick={handleVerifyOtp}
+              disabled={loading}
+              className={`w-full py-4 rounded-2xl font-bold text-base transition-all ${
+                loading
+                  ? 'bg-primary-300 text-white'
+                  : 'bg-primary-500 text-white shadow-lg shadow-primary-200 active:scale-[0.98]'
+              }`}
+            >
+              {loading ? '⏳ Verifying…' : 'Verify & Place Order'}
+            </button>
+
+            <button
+              onClick={() => setVerifySession(null)}
+              className="w-full text-center text-slate-400 text-sm mt-3 py-2"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="page-enter h-dvh flex flex-col overflow-hidden">
@@ -70,6 +182,37 @@ export function CheckoutPage() {
       <div className="flex-1 overflow-y-auto scrollbar-hide">
         <div className="px-4 py-4 space-y-5">
 
+          {/* User Info */}
+          <Section icon={<User size={18} className="text-primary-500" />} title="Your Details">
+            <div className="space-y-3">
+              <div className="relative">
+                <User size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Your name"
+                  value={name}
+                  onChange={(e) => { setName(e.target.value); setError(''); }}
+                  className={`w-full pl-9 pr-4 py-3 bg-slate-50 rounded-2xl text-sm text-slate-800 outline-none focus:ring-2 ${
+                    error && !name.trim() ? 'ring-2 ring-red-300' : 'focus:ring-primary-300'
+                  }`}
+                />
+              </div>
+              <div className="relative">
+                <Mail size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="email"
+                  placeholder="your@email.com"
+                  value={email}
+                  onChange={(e) => { setEmail(e.target.value); setError(''); }}
+                  className={`w-full pl-9 pr-4 py-3 bg-slate-50 rounded-2xl text-sm text-slate-800 outline-none focus:ring-2 ${
+                    error && (!email.trim() || !email.includes('@')) ? 'ring-2 ring-red-300' : 'focus:ring-primary-300'
+                  }`}
+                />
+              </div>
+              {error && <p className="text-red-500 text-xs mt-1 pl-1">{error}</p>}
+            </div>
+          </Section>
+
           {/* Delivery Address */}
           <Section icon={<MapPin size={18} className="text-primary-500" />} title="Delivery Address">
             <textarea
@@ -78,10 +221,9 @@ export function CheckoutPage() {
               value={address}
               onChange={(e) => { setAddress(e.target.value); setError(''); }}
               className={`w-full px-4 py-3 bg-slate-50 rounded-2xl text-sm text-slate-800 outline-none resize-none focus:ring-2 ${
-                error ? 'ring-2 ring-red-300' : 'focus:ring-primary-300'
+                error && !address.trim() ? 'ring-2 ring-red-300' : 'focus:ring-primary-300'
               }`}
             />
-            {error && <p className="text-red-500 text-xs mt-1 pl-1">{error}</p>}
             <button className="flex items-center gap-2 text-primary-600 text-sm font-medium mt-2">
               <MapPin size={14} />
               Use current location

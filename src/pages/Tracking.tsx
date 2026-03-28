@@ -1,18 +1,70 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { Package, RefreshCw } from 'lucide-react';
 import { useStore, ORDER_STATUS_STEPS } from '../store/useStore';
+import type { OrderStatus } from '../store/useStore';
+import { getTradlyOrder, isTradlyConfigured } from '../lib/tradlyApi';
+
+// Map Tradly order status codes to local OrderStatus
+function mapTradlyStatus(code: number): OrderStatus {
+  switch (code) {
+    case 2: return 'confirmed';
+    case 3: return 'preparing';
+    case 4: return 'out_for_delivery';
+    case 5: return 'delivered';
+    case 6: return 'placed'; // Cancelled by customer — keep at placed for UI purposes
+    default: return 'placed';
+  }
+}
 
 export function TrackingPage() {
-  const { orders, currentOrderId, advanceOrderStatus, setPage } = useStore();
+  const {
+    orders, currentOrderId, advanceOrderStatus, setPage,
+    tradlyOrderId, tradlyUser,
+  } = useStore();
 
   const order = orders.find((o) => o.id === currentOrderId) ?? orders[0];
+  const tradlyRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const tradlyEnabled = isTradlyConfigured();
 
-  /* Auto-advance demo: every 5 s move to next status if not yet delivered */
+  // Poll Tradly for real order status
+  useEffect(() => {
+    if (!tradlyEnabled || !tradlyOrderId || !tradlyUser) return;
+    if (!order || order.status === 'delivered') return;
+
+    async function pollStatus() {
+      if (!tradlyOrderId || !tradlyUser) return;
+      try {
+        const tradlyOrder = await getTradlyOrder(tradlyOrderId, tradlyUser.authKey);
+        const newStatus = mapTradlyStatus(tradlyOrder.status);
+        const currentOrder = useStore.getState().orders.find((o) => o.id === currentOrderId) ?? useStore.getState().orders[0];
+        if (!currentOrder) return;
+        const statusOrder: OrderStatus[] = ['placed', 'confirmed', 'preparing', 'out_for_delivery', 'delivered'];
+        const currentIdx = statusOrder.indexOf(currentOrder.status);
+        const newIdx = statusOrder.indexOf(newStatus);
+        // Only advance, never go backward
+        if (newIdx > currentIdx) {
+          useStore.getState().advanceOrderStatus(currentOrder.id);
+        }
+      } catch {
+        // Non-fatal: ignore polling errors
+      }
+    }
+
+    pollStatus();
+    tradlyRef.current = setInterval(pollStatus, 10_000);
+    return () => {
+      if (tradlyRef.current) clearInterval(tradlyRef.current);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tradlyOrderId, tradlyUser?.authKey, order?.status]);
+
+  /* Auto-advance demo: every 5 s move to next status if no Tradly connection */
   useEffect(() => {
     if (!order || order.status === 'delivered') return;
+    if (tradlyEnabled && tradlyOrderId && tradlyUser) return; // let Tradly polling handle it
     const t = setTimeout(() => advanceOrderStatus(order.id), 5000);
     return () => clearTimeout(t);
-  }, [order?.status, order?.id, advanceOrderStatus]);
+  }, [order?.status, order?.id, advanceOrderStatus, tradlyEnabled, tradlyOrderId, tradlyUser]);
 
   if (!order) {
     return (
@@ -44,6 +96,11 @@ export function TrackingPage() {
           <div>
             <h1 className="text-xl font-black text-slate-900">Track Order</h1>
             <p className="text-slate-500 text-xs mt-0.5">{order.id}</p>
+            {tradlyOrderId && (
+              <p className="text-primary-500 text-xs font-medium mt-0.5">
+                Ref: {tradlyOrderId}
+              </p>
+            )}
           </div>
           {!isDelivered && (
             <button
