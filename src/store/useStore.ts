@@ -220,9 +220,15 @@ export const useStore = create<AppState>()(
             try { await clearTradlyCart(user.authKey); } catch { /* ignore */ }
 
             for (const item of state.cart) {
+              const listingId = parseInt(item.product.id, 10);
+              // Variant ID: strip '-default' suffix used for mock single-variant products.
+              // For real Tradly products the variant id is a numeric string.
+              const rawVariantId = item.variant.id.replace(/-default$/, '');
+              const variantId = parseInt(rawVariantId, 10);
+              // If variant id is not a valid Tradly integer, fall back to listing id
               await addToTradlyCart(
-                parseInt(item.product.id, 10),
-                parseInt(item.variant.id.replace('-default', ''), 10) || parseInt(item.product.id, 10),
+                listingId,
+                Number.isFinite(variantId) && variantId > 0 ? variantId : listingId,
                 item.quantity,
                 user.authKey,
               );
