@@ -25,9 +25,15 @@ export class TradlyApiError extends Error {
 
 // ─── Tradly types ─────────────────────────────────────────────────────────────
 
+export interface TradlyPrice {
+  amount: number;
+  currency: string;
+  formatted: string;
+}
+
 export interface TradlyRatingData {
   rating_average: number;
-  rating_count: number;
+  rating_count?: number;
 }
 
 export interface TradlyListing {
@@ -35,7 +41,8 @@ export interface TradlyListing {
   title: string;
   description: string;
   images: string[];
-  list_price: number;
+  list_price: TradlyPrice;
+  offer_price: TradlyPrice;
   offer_percent: number;
   category_id: number[];
   stock: number;
@@ -47,7 +54,8 @@ export interface TradlyListing {
 export interface TradlyVariant {
   id: number;
   title?: string;
-  list_price: number;
+  list_price: TradlyPrice;
+  offer_price?: TradlyPrice;
   offer_percent: number;
   stock: number;
   active: boolean;
@@ -154,7 +162,7 @@ export async function getListingVariants(listingId: number): Promise<TradlyVaria
 
 export async function getCategories(): Promise<TradlyCategory[]> {
   const res = await request<{ data: { categories: TradlyCategory[] } }>(
-    '/v1/categories?page=1&per_page=50',
+    '/v1/categories?page=1&per_page=50&parent=0',
   );
   return res.data.categories;
 }
@@ -397,27 +405,25 @@ export function adaptListingToProduct(
     variants = tradlyVariants
       .filter((v) => v.active)
       .map((v) => {
-        const effectivePrice = v.offer_percent > 0
-          ? Math.round(v.list_price * (1 - v.offer_percent / 100))
-          : v.list_price;
+        // Use offer_price if available (pre-calculated by Tradly), else list_price
+        const price = v.offer_price?.amount ?? v.list_price.amount;
         const label = v.title ?? v.variant_values.join(', ') ?? 'Standard';
         return {
           id: String(v.id),
           label,
-          price: effectivePrice,
+          price,
           unit: 'unit',
           inStock: v.active && v.stock > 0,
         };
       });
   } else {
-    const effectivePrice = listing.offer_percent > 0
-      ? Math.round(listing.list_price * (1 - listing.offer_percent / 100))
-      : listing.list_price;
+    // offer_price is the discounted price pre-calculated by Tradly
+    const price = listing.offer_price?.amount ?? listing.list_price.amount;
     variants = [
       {
         id: `${listing.id}-default`,
         label: 'Standard',
-        price: effectivePrice,
+        price,
         unit: 'unit',
         inStock: listing.active && listing.stock > 0,
       },
@@ -430,7 +436,7 @@ export function adaptListingToProduct(
       {
         id: `${listing.id}-default`,
         label: 'Standard',
-        price: listing.list_price,
+        price: listing.list_price.amount,
         unit: 'unit',
         inStock: false,
       },
