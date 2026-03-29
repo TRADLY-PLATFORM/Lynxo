@@ -14,6 +14,8 @@ import {
   addToTradlyCart,
   clearTradlyCart,
   checkoutTradlyCart,
+  getPaymentMethods,
+  getShippingMethods,
 } from '../lib/tradlyApi';
 import type { GetListingsParams } from '../lib/tradlyApi';
 
@@ -231,13 +233,29 @@ export const useStore = create<AppState>()(
               user.authKey,
             );
 
-            const paymentMethodId = parseInt(import.meta.env.VITE_TRADLY_PAYMENT_METHOD_ID ?? '1', 10);
-            const shippingMethodId = parseInt(import.meta.env.VITE_TRADLY_SHIPPING_METHOD_ID ?? '1', 10);
+            // Fetch payment and shipping methods dynamically from Tradly
+            const [paymentMethods, shippingMethods] = await Promise.all([
+              getPaymentMethods(),
+              getShippingMethods(),
+            ]);
+
+            // Pick default or first active payment method
+            const paymentMethod =
+              paymentMethods.find((m) => m.default && m.active) ??
+              paymentMethods.find((m) => m.active);
+            if (!paymentMethod) throw new Error('No active payment method found');
+
+            // Prefer a delivery-type shipping method, then default, then first active
+            const shippingMethod =
+              shippingMethods.find((m) => m.active && /delivery/i.test(m.type)) ??
+              shippingMethods.find((m) => m.default && m.active) ??
+              shippingMethods.find((m) => m.active);
+            if (!shippingMethod) throw new Error('No active shipping method found');
 
             const tradlyOrder = await checkoutTradlyCart(
               {
-                payment_method_id: paymentMethodId,
-                shipping_method_id: shippingMethodId,
+                payment_method_id: paymentMethod.id,
+                shipping_method_id: shippingMethod.id,
                 shipping_address_id: tradlyAddr.id,
               },
               user.authKey,

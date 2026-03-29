@@ -259,6 +259,40 @@ export async function clearTradlyCart(authKey: string): Promise<void> {
   await request('/products/v1/cart', { method: 'DELETE' }, authKey);
 }
 
+// ─── Payment & Shipping methods ───────────────────────────────────────────
+
+export interface TradlyPaymentMethod {
+  id: number;
+  name: string;
+  type: string;
+  channel: string;
+  default: boolean;
+  active: boolean;
+}
+
+export interface TradlyShippingMethod {
+  id: number;
+  name: string;
+  type: string;
+  channel: string;
+  default: boolean;
+  active: boolean;
+}
+
+export async function getPaymentMethods(): Promise<TradlyPaymentMethod[]> {
+  const res = await request<{ data: { payment_methods: TradlyPaymentMethod[] } }>(
+    '/v1/tenants/payment_methods',
+  );
+  return res.data.payment_methods;
+}
+
+export async function getShippingMethods(): Promise<TradlyShippingMethod[]> {
+  const res = await request<{ data: { shipping_methods: TradlyShippingMethod[] } }>(
+    '/v1/tenants/shipping_methods',
+  );
+  return res.data.shipping_methods;
+}
+
 // ─── Checkout ─────────────────────────────────────────────────────────────────
 
 export interface CheckoutParams {
