@@ -6,6 +6,7 @@ import { setCurrencyCode } from './currency';
 const BASE_URL = import.meta.env.VITE_TRADLY_BASE_URL ?? 'https://api.tradly.app';
 const PK = import.meta.env.VITE_TRADLY_PUBLISHABLE_KEY ?? '';
 const CURRENCY = import.meta.env.VITE_TRADLY_CURRENCY ?? '';
+const LYNXO_API_BASE_URL = import.meta.env.VITE_LYNXO_API_BASE_URL ?? '';
 
 export function isTradlyConfigured(): boolean {
   return !!PK && !PK.includes('your_key_here');
@@ -117,6 +118,40 @@ export interface TradlyOrder {
   total: number;
   created_at: string;
   shipments?: TradlyShipment[];
+}
+
+export interface LynxoTrackingLocation {
+  latitude: number;
+  longitude: number;
+}
+
+export interface LynxoTrackingEvent {
+  id?: string;
+  status?: string;
+  label?: string;
+  note?: string;
+  description?: string;
+  at?: string;
+  timestamp?: string;
+}
+
+export interface LynxoOrderTracking {
+  order_id?: string;
+  status_code?: number;
+  status?: number;
+  status_label?: string;
+  status_text?: string;
+  live_location?: LynxoTrackingLocation;
+  location?: LynxoTrackingLocation;
+  customer_location?: LynxoTrackingLocation;
+  eta_minutes?: number;
+  updated_at?: string;
+  map_url?: string;
+  driver?: {
+    name?: string;
+    phone?: string;
+  };
+  events?: LynxoTrackingEvent[];
 }
 
 // ─── HTTP helper ──────────────────────────────────────────────────────────────
@@ -489,6 +524,56 @@ export async function getTradlyOrders(
     orders: res.data.orders ?? [],
     totalCount: res.data.total_count,
   };
+}
+
+function resolveLynxoApiUrl(path: string): string {
+  if (!LYNXO_API_BASE_URL.trim()) return path;
+  const base = LYNXO_API_BASE_URL.replace(/\/$/, '');
+  const suffix = path.startsWith('/') ? path : `/${path}`;
+  return `${base}${suffix}`;
+}
+
+function readLynxoPayload(json: unknown): LynxoOrderTracking | null {
+  if (!json || typeof json !== 'object') return null;
+  const obj = json as {
+    data?: { tracking?: LynxoOrderTracking; order_tracking?: LynxoOrderTracking };
+    tracking?: LynxoOrderTracking;
+    order_tracking?: LynxoOrderTracking;
+  };
+  return obj.data?.tracking ?? obj.data?.order_tracking ?? obj.tracking ?? obj.order_tracking ?? (json as LynxoOrderTracking);
+}
+
+export async function getLynxoOrderTracking(
+  orderId: string,
+  authKey?: string,
+): Promise<LynxoOrderTracking | null> {
+  const candidates = [
+    `/api/lynxo/orders/${orderId}/tracking`,
+    `/api/orders/${orderId}/tracking`,
+  ];
+
+  for (const path of candidates) {
+    const url = resolveLynxoApiUrl(path);
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (PK) headers.Authorization = `Bearer ${PK}`;
+    if (authKey) headers['x-auth-key'] = authKey;
+
+    const res = await fetch(url, { method: 'GET', headers });
+    if (res.status === 404) continue;
+    if (!res.ok) return null;
+
+    let body: unknown;
+    try {
+      body = await res.json();
+    } catch {
+      return null;
+    }
+    return readLynxoPayload(body);
+  }
+
+  return null;
 }
 
 // ─── Adapter ─────────────────────────────────────────────────────────────────

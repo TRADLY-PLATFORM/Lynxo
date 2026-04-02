@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react';
-import { Package, RefreshCw } from 'lucide-react';
+import { MapPin, Package, Phone, RefreshCw, UserRound } from 'lucide-react';
 import {
   useStore,
   ORDER_STATUS_STEPS,
@@ -47,9 +47,10 @@ export function TrackingPage() {
 
   useEffect(() => {
     if (!orderId || !authKey || orderStatusCode === undefined) return;
+    // Always fetch latest details at least once for detail/map/courier data.
+    refreshCurrentOrder();
     if (isTerminalOrderStatus(orderStatusCode)) return;
 
-    refreshCurrentOrder();
     pollRef.current = setInterval(() => {
       refreshCurrentOrder();
     }, 10_000);
@@ -83,6 +84,15 @@ export function TrackingPage() {
   const eta = new Date(order.estimatedDelivery);
   const isDelivered = order.statusCode === 5 || order.statusCode === 8;
   const isCanceled = order.statusCode === 6 || order.statusCode === 7;
+  const liveLocation = order.liveTracking?.liveLocation ?? order.customerCoordinates ?? null;
+  const mapUrl = order.liveTracking?.mapUrl
+    ?? (liveLocation
+      ? `https://www.openstreetmap.org/export/embed.html?layer=mapnik&marker=${liveLocation.latitude},${liveLocation.longitude}`
+      : null);
+  const trackingEvents = order.liveTracking?.events ?? [];
+  const trackingUpdatedAt = order.liveTracking?.updatedAt
+    ? new Date(order.liveTracking.updatedAt).toLocaleString()
+    : null;
 
   return (
     <div className="page-enter h-dvh flex flex-col overflow-hidden">
@@ -168,6 +178,72 @@ export function TrackingPage() {
                 );
               })}
             </div>
+          </div>
+
+          <div className="bg-white rounded-2xl p-4 shadow-card border border-slate-100">
+            <h3 className="font-bold text-slate-800 text-sm mb-3">Live Tracking</h3>
+            {mapUrl ? (
+              <div className="space-y-3">
+                <div className="h-52 w-full rounded-xl overflow-hidden border border-slate-200">
+                  <iframe
+                    title="Live order tracking map"
+                    src={mapUrl}
+                    className="w-full h-full"
+                    loading="lazy"
+                    referrerPolicy="no-referrer-when-downgrade"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+                  <div className="rounded-xl bg-slate-50 px-3 py-2 flex items-center gap-2">
+                    <MapPin size={14} className="text-primary-500" />
+                    <span className="text-slate-700">
+                      {liveLocation
+                        ? `${liveLocation.latitude.toFixed(5)}, ${liveLocation.longitude.toFixed(5)}`
+                        : 'Location unavailable'}
+                    </span>
+                  </div>
+                  <div className="rounded-xl bg-slate-50 px-3 py-2 flex items-center gap-2">
+                    <UserRound size={14} className="text-primary-500" />
+                    <span className="text-slate-700">
+                      {order.liveTracking?.courierName || 'Courier assignment pending'}
+                    </span>
+                  </div>
+                  <div className="rounded-xl bg-slate-50 px-3 py-2 flex items-center gap-2">
+                    <Phone size={14} className="text-primary-500" />
+                    <span className="text-slate-700">
+                      {order.liveTracking?.courierPhone || 'Phone unavailable'}
+                    </span>
+                  </div>
+                  <div className="rounded-xl bg-slate-50 px-3 py-2">
+                    <span className="text-slate-700 text-xs">
+                      Last updated: {trackingUpdatedAt || 'Not provided by Lynxo API'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-slate-500">
+                Live map is not available yet for this order.
+              </p>
+            )}
+          </div>
+
+          <div className="bg-white rounded-2xl p-4 shadow-card border border-slate-100">
+            <h3 className="font-bold text-slate-800 text-sm mb-3">Status Timeline</h3>
+            {trackingEvents.length === 0 ? (
+              <p className="text-sm text-slate-500">No Lynxo tracking events yet.</p>
+            ) : (
+              <div className="space-y-2">
+                {trackingEvents.map((event) => (
+                  <div key={event.id} className="rounded-xl bg-slate-50 px-3 py-2">
+                    <p className="text-sm font-semibold text-slate-800">{event.label}</p>
+                    {event.note && <p className="text-xs text-slate-600 mt-0.5">{event.note}</p>}
+                    <p className="text-[11px] text-slate-400 mt-1">{new Date(event.at).toLocaleString()}</p>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="bg-white rounded-2xl p-4 shadow-card border border-slate-100">

@@ -20,9 +20,11 @@ import {
   getShippingMethods,
   getTradlyOrder,
   getTradlyOrders,
+  getLynxoOrderTracking,
 } from '../lib/tradlyApi';
 import type {
   GetListingsParams,
+  LynxoOrderTracking,
   TradlyPaymentMethod,
   TradlyOrder,
   TradlyUser,
@@ -48,6 +50,31 @@ export interface Order {
   statusLabel: string;
   placedAt: string;
   estimatedDelivery: string;
+  customerCoordinates?: {
+    latitude: number;
+    longitude: number;
+  } | null;
+  liveTracking?: {
+    liveLocation?: {
+      latitude: number;
+      longitude: number;
+    } | null;
+    customerLocation?: {
+      latitude: number;
+      longitude: number;
+    } | null;
+    updatedAt?: string;
+    etaMinutes?: number;
+    courierName?: string;
+    courierPhone?: string;
+    mapUrl?: string;
+    events: Array<{
+      id: string;
+      label: string;
+      note?: string;
+      at: string;
+    }>;
+  };
 }
 
 export const ORDER_STATUS_STEPS: { code: TradlyOrderStatusCode; label: string; icon: string }[] = [
@@ -236,6 +263,56 @@ function mapTradlyOrderToLocal(tradlyOrder: TradlyOrder, existing?: Order): Orde
     statusLabel: getOrderStatusLabel(code),
     placedAt: tradlyOrder.created_at ?? existing?.placedAt ?? now.toISOString(),
     estimatedDelivery: existing?.estimatedDelivery ?? eta.toISOString(),
+    customerCoordinates: existing?.customerCoordinates ?? null,
+    liveTracking: existing?.liveTracking,
+  };
+}
+
+function mergeLynxoTracking(order: Order, tracking: LynxoOrderTracking | null): Order {
+  if (!tracking) return order;
+
+  const rawStatus = tracking.status_code ?? tracking.status;
+  const hasStatus = typeof rawStatus === 'number' && rawStatus >= 1 && rawStatus <= 8;
+  const nextStatusCode = hasStatus ? statusCode(rawStatus) : order.statusCode;
+  const nextStatusLabel =
+    tracking.status_label
+    ?? tracking.status_text
+    ?? (hasStatus ? getOrderStatusLabel(nextStatusCode) : order.statusLabel);
+
+  const etaMinutes = typeof tracking.eta_minutes === 'number' ? tracking.eta_minutes : undefined;
+  const estimatedDelivery = etaMinutes !== undefined
+    ? new Date(Date.now() + etaMinutes * 60_000).toISOString()
+    : order.estimatedDelivery;
+
+  const events = (tracking.events ?? [])
+    .map((event, index) => {
+      const label = event.label ?? event.status ?? '';
+      const at = event.at ?? event.timestamp ?? '';
+      if (!label || !at) return null;
+      return {
+        id: event.id ?? `${index}-${label}-${at}`,
+        label,
+        note: event.note ?? event.description,
+        at,
+      };
+    })
+    .filter(Boolean) as NonNullable<Order['liveTracking']>['events'];
+
+  return {
+    ...order,
+    statusCode: nextStatusCode,
+    statusLabel: nextStatusLabel,
+    estimatedDelivery,
+    liveTracking: {
+      liveLocation: tracking.live_location ?? tracking.location ?? order.liveTracking?.liveLocation ?? null,
+      customerLocation: tracking.customer_location ?? order.liveTracking?.customerLocation ?? order.customerCoordinates ?? null,
+      updatedAt: tracking.updated_at ?? order.liveTracking?.updatedAt,
+      etaMinutes,
+      courierName: tracking.driver?.name ?? order.liveTracking?.courierName,
+      courierPhone: tracking.driver?.phone ?? order.liveTracking?.courierPhone,
+      mapUrl: tracking.map_url ?? order.liveTracking?.mapUrl,
+      events: events.length > 0 ? events : (order.liveTracking?.events ?? []),
+    },
   };
 }
 
@@ -436,6 +513,12 @@ export const useStore = create<AppState>()(
             statusLabel: getOrderStatusLabel(tradlyOrder.status),
             placedAt: new Date().toISOString(),
             estimatedDelivery: new Date(Date.now() + 45 * 60_000).toISOString(),
+            customerCoordinates: input.coordinates ?? null,
+            liveTracking: {
+              customerLocation: input.coordinates ?? null,
+              liveLocation: null,
+              events: [],
+            },
           });
 
           set((s) => ({
@@ -466,9 +549,15 @@ export const useStore = create<AppState>()(
         if (!state.currentOrderId || !state.tradlyUser) return;
 
         try {
-          const tradlyOrder = await getTradlyOrder(state.currentOrderId, state.tradlyUser.authKey);
+          const [tradlyOrder, lynxoTracking] = await Promise.all([
+            getTradlyOrder(state.currentOrderId, state.tradlyUser.authKey),
+            getLynxoOrderTracking(state.currentOrderId, state.tradlyUser.authKey).catch(() => null),
+          ]);
           const existing = state.orders.find((order) => order.id === state.currentOrderId);
-          const updated = mapTradlyOrderToLocal(tradlyOrder, existing);
+          const updated = mergeLynxoTracking(
+            mapTradlyOrderToLocal(tradlyOrder, existing),
+            lynxoTracking,
+          );
 
           set((s) => ({
             orders: upsertOrders(s.orders, [updated]),
