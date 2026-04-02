@@ -1,70 +1,63 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { Package, RefreshCw } from 'lucide-react';
-import { useStore, ORDER_STATUS_STEPS } from '../store/useStore';
-import type { OrderStatus } from '../store/useStore';
-import { getTradlyOrder, isTradlyConfigured } from '../lib/tradlyApi';
+import {
+  useStore,
+  ORDER_STATUS_STEPS,
+  isTerminalOrderStatus,
+} from '../store/useStore';
+import { formatMoney } from '../lib/currency';
 
-// Map Tradly order status codes to local OrderStatus
-function mapTradlyStatus(code: number): OrderStatus {
-  switch (code) {
-    case 2: return 'confirmed';
-    case 3: return 'preparing';
-    case 4: return 'out_for_delivery';
-    case 5: return 'delivered';
-    case 6: return 'placed'; // Cancelled by customer — keep at placed for UI purposes
-    default: return 'placed';
-  }
+function stepIndexForStatus(code: number): number {
+  if (code === 6 || code === 7) return 1;
+  const idx = ORDER_STATUS_STEPS.findIndex((step) => step.code === code);
+  return idx >= 0 ? idx : 0;
 }
 
 export function TrackingPage() {
   const {
-    orders, currentOrderId, advanceOrderStatus, setPage,
-    tradlyOrderId, tradlyUser,
+    orders,
+    currentOrderId,
+    refreshCurrentOrder,
+    setPage,
+    setCurrentOrderId,
+    tradlyUser,
+    fetchOrderHistory,
+    ordersLoading,
   } = useStore();
 
-  const order = orders.find((o) => o.id === currentOrderId) ?? orders[0];
-  const tradlyRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const tradlyEnabled = isTradlyConfigured();
+  const order = useMemo(
+    () => orders.find((item) => item.id === currentOrderId) ?? orders[0],
+    [orders, currentOrderId],
+  );
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const orderId = order?.id;
+  const orderStatusCode = order?.statusCode;
+  const authKey = tradlyUser?.authKey;
 
-  // Poll Tradly for real order status
   useEffect(() => {
-    if (!tradlyEnabled || !tradlyOrderId || !tradlyUser) return;
-    if (!order || order.status === 'delivered') return;
+    if (!tradlyUser) return;
+    if (orders.length > 0) return;
+    fetchOrderHistory(true);
+  }, [tradlyUser, orders.length, fetchOrderHistory]);
 
-    async function pollStatus() {
-      if (!tradlyOrderId || !tradlyUser) return;
-      try {
-        const tradlyOrder = await getTradlyOrder(tradlyOrderId, tradlyUser.authKey);
-        const newStatus = mapTradlyStatus(tradlyOrder.status);
-        const currentOrder = useStore.getState().orders.find((o) => o.id === currentOrderId) ?? useStore.getState().orders[0];
-        if (!currentOrder) return;
-        const statusOrder: OrderStatus[] = ['placed', 'confirmed', 'preparing', 'out_for_delivery', 'delivered'];
-        const currentIdx = statusOrder.indexOf(currentOrder.status);
-        const newIdx = statusOrder.indexOf(newStatus);
-        // Only advance, never go backward
-        if (newIdx > currentIdx) {
-          useStore.getState().advanceOrderStatus(currentOrder.id);
-        }
-      } catch {
-        // Non-fatal: ignore polling errors
-      }
-    }
+  useEffect(() => {
+    if (!orderId || !tradlyUser) return;
+    setCurrentOrderId(orderId);
+  }, [orderId, tradlyUser, setCurrentOrderId]);
 
-    pollStatus();
-    tradlyRef.current = setInterval(pollStatus, 10_000);
+  useEffect(() => {
+    if (!orderId || !authKey || orderStatusCode === undefined) return;
+    if (isTerminalOrderStatus(orderStatusCode)) return;
+
+    refreshCurrentOrder();
+    pollRef.current = setInterval(() => {
+      refreshCurrentOrder();
+    }, 10_000);
+
     return () => {
-      if (tradlyRef.current) clearInterval(tradlyRef.current);
+      if (pollRef.current) clearInterval(pollRef.current);
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tradlyOrderId, tradlyUser?.authKey, order?.status]);
-
-  /* Auto-advance demo: every 5 s move to next status if no Tradly connection */
-  useEffect(() => {
-    if (!order || order.status === 'delivered') return;
-    if (tradlyEnabled && tradlyOrderId && tradlyUser) return; // let Tradly polling handle it
-    const t = setTimeout(() => advanceOrderStatus(order.id), 5000);
-    return () => clearTimeout(t);
-  }, [order?.status, order?.id, advanceOrderStatus, tradlyEnabled, tradlyOrderId, tradlyUser]);
+  }, [orderId, orderStatusCode, authKey, refreshCurrentOrder]);
 
   if (!order) {
     return (
@@ -73,7 +66,9 @@ export function TrackingPage() {
           <Package size={40} className="text-slate-300" />
         </div>
         <h2 className="text-xl font-bold text-slate-800 mb-2">No active orders</h2>
-        <p className="text-slate-500 text-sm mb-8">Place an order to track its delivery here.</p>
+        <p className="text-slate-500 text-sm mb-8">
+          {ordersLoading ? 'Loading order history…' : 'Place an order to track its delivery here.'}
+        </p>
         <button
           onClick={() => setPage('home')}
           className="bg-primary-500 text-white px-6 py-3 rounded-2xl font-semibold shadow-lg shadow-primary-200"
@@ -84,29 +79,25 @@ export function TrackingPage() {
     );
   }
 
-  const currentIdx = ORDER_STATUS_STEPS.findIndex((s) => s.key === order.status);
+  const idx = stepIndexForStatus(order.statusCode);
   const eta = new Date(order.estimatedDelivery);
-  const isDelivered = order.status === 'delivered';
+  const isDelivered = order.statusCode === 5 || order.statusCode === 8;
+  const isCanceled = order.statusCode === 6 || order.statusCode === 7;
 
   return (
     <div className="page-enter h-dvh flex flex-col overflow-hidden">
-      {/* Header */}
       <div className="px-4 pt-6 pb-4 bg-white border-b border-slate-100 safe-top flex-shrink-0">
         <div className="flex items-start justify-between">
           <div>
             <h1 className="text-xl font-black text-slate-900">Track Order</h1>
-            <p className="text-slate-500 text-xs mt-0.5">{order.id}</p>
-            {tradlyOrderId && (
-              <p className="text-primary-500 text-xs font-medium mt-0.5">
-                Ref: {tradlyOrderId}
-              </p>
-            )}
+            <p className="text-slate-500 text-xs mt-0.5">#{order.tradlyId}</p>
+            <p className="text-primary-500 text-xs font-medium mt-0.5">Ref: {order.reference}</p>
           </div>
-          {!isDelivered && (
+          {!isTerminalOrderStatus(order.statusCode) && (
             <button
-              onClick={() => advanceOrderStatus(order.id)}
+              onClick={() => refreshCurrentOrder()}
               className="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-100 text-slate-500"
-              title="Simulate next status"
+              title="Refresh status"
             >
               <RefreshCw size={16} />
             </button>
@@ -116,17 +107,13 @@ export function TrackingPage() {
 
       <div className="flex-1 overflow-y-auto scrollbar-hide">
         <div className="px-4 py-4 space-y-4">
-
-          {/* ETA card */}
-          <div className={`rounded-2xl p-4 ${
-            isDelivered
-              ? 'bg-green-500 text-white'
-              : 'bg-primary-500 text-white'
-          }`}>
+          <div className={`rounded-2xl p-4 ${isCanceled ? 'bg-red-500' : isDelivered ? 'bg-green-500' : 'bg-primary-500'} text-white`}>
             <p className="text-xs font-medium opacity-80 mb-1">
-              {isDelivered ? 'Delivered!' : 'Estimated Delivery'}
+              {isCanceled ? 'Order Cancelled' : isDelivered ? 'Delivered!' : 'Estimated Delivery'}
             </p>
-            {isDelivered ? (
+            {isCanceled ? (
+              <p className="text-2xl font-black">❌ {order.statusLabel}</p>
+            ) : isDelivered ? (
               <p className="text-2xl font-black">🎉 All done!</p>
             ) : (
               <div className="flex items-end gap-2">
@@ -141,17 +128,15 @@ export function TrackingPage() {
             </p>
           </div>
 
-          {/* Status timeline */}
           <div className="bg-white rounded-2xl p-4 shadow-card border border-slate-100">
             <h3 className="font-bold text-slate-800 text-sm mb-4">Order Progress</h3>
             <div className="space-y-1">
-              {ORDER_STATUS_STEPS.map((step, idx) => {
-                const isDone    = idx < currentIdx;
-                const isCurrent = idx === currentIdx;
-                const isPending = idx > currentIdx;
+              {ORDER_STATUS_STEPS.map((step, stepIdx) => {
+                const isDone = stepIdx < idx;
+                const isCurrent = stepIdx === idx;
+                const isPending = stepIdx > idx;
                 return (
-                  <div key={step.key} className="flex items-start gap-3">
-                    {/* Dot + line */}
+                  <div key={step.code} className="flex items-start gap-3">
                     <div className="flex flex-col items-center w-8 flex-shrink-0">
                       <div className={`w-8 h-8 rounded-full flex items-center justify-center text-base transition-all ${
                         isDone
@@ -159,28 +144,24 @@ export function TrackingPage() {
                           : isCurrent
                           ? 'bg-primary-500 text-white pulse-dot'
                           : 'bg-slate-100 text-slate-300'
-                      }`}>
+                      }`}
+                      >
                         {isDone ? '✓' : step.icon}
                       </div>
-                      {idx < ORDER_STATUS_STEPS.length - 1 && (
-                        <div className={`w-0.5 h-6 mt-1 ${
-                          isDone ? 'bg-green-300' : 'bg-slate-100'
-                        }`} />
+                      {stepIdx < ORDER_STATUS_STEPS.length - 1 && (
+                        <div className={`w-0.5 h-6 mt-1 ${isDone ? 'bg-green-300' : 'bg-slate-100'}`} />
                       )}
                     </div>
 
-                    {/* Label */}
                     <div className="pb-1 pt-1">
                       <p className={`text-sm font-semibold leading-tight ${
                         isPending ? 'text-slate-300' : isCurrent ? 'text-primary-700' : 'text-slate-700'
-                      }`}>
+                      }`}
+                      >
                         {step.label}
                       </p>
-                      {isCurrent && !isDelivered && (
+                      {isCurrent && !isTerminalOrderStatus(order.statusCode) && (
                         <p className="text-xs text-primary-400 mt-0.5">In progress…</p>
-                      )}
-                      {isDone && (
-                        <p className="text-xs text-green-500 mt-0.5">Done</p>
                       )}
                     </div>
                   </div>
@@ -189,48 +170,43 @@ export function TrackingPage() {
             </div>
           </div>
 
-          {/* Order items */}
           <div className="bg-white rounded-2xl p-4 shadow-card border border-slate-100">
             <h3 className="font-bold text-slate-800 text-sm mb-3">
               Items ({order.items.length})
             </h3>
-            <div className="space-y-2">
-              {order.items.map((item, i) => (
-                <div key={i} className="flex items-center gap-3">
-                  <img
-                    src={item.product.image}
-                    alt={item.product.name}
-                    className="w-10 h-10 rounded-lg object-cover flex-shrink-0"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-slate-800 truncate">
-                      {item.product.emoji} {item.product.name}
-                    </p>
-                    <p className="text-xs text-slate-500">
-                      {item.variant.label} × {item.quantity}
+            {order.items.length === 0 ? (
+              <p className="text-sm text-slate-500">
+                Item details are available in the Tradly dashboard for this order.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {order.items.map((item, i) => (
+                  <div key={i} className="flex items-center gap-3">
+                    <img
+                      src={item.product.image}
+                      alt={item.product.name}
+                      className="w-10 h-10 rounded-lg object-cover flex-shrink-0"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-slate-800 truncate">
+                        {item.product.emoji} {item.product.name}
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        {item.variant.label} × {item.quantity}
+                      </p>
+                    </div>
+                    <p className="text-sm font-bold text-slate-800 flex-shrink-0">
+                      {formatMoney(item.variant.price * item.quantity)}
                     </p>
                   </div>
-                  <p className="text-sm font-bold text-slate-800 flex-shrink-0">
-                    ₹{item.variant.price * item.quantity}
-                  </p>
+                ))}
+                <div className="border-t border-slate-100 pt-2 flex justify-between font-bold text-slate-900 text-sm">
+                  <span>Total paid</span>
+                  <span>{formatMoney(order.total)}</span>
                 </div>
-              ))}
-              <div className="border-t border-slate-100 pt-2 flex justify-between font-bold text-slate-900 text-sm">
-                <span>Total paid</span>
-                <span>₹{order.total}</span>
               </div>
-            </div>
+            )}
           </div>
-
-          {/* Re-order */}
-          {isDelivered && (
-            <button
-              onClick={() => setPage('home')}
-              className="w-full bg-primary-500 text-white py-4 rounded-2xl font-bold shadow-lg shadow-primary-200"
-            >
-              🔄 Order Again
-            </button>
-          )}
         </div>
       </div>
     </div>

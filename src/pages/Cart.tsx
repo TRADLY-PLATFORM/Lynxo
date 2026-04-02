@@ -1,5 +1,6 @@
 import { Trash2, Plus, Minus, ShoppingBag } from 'lucide-react';
 import { useStore } from '../store/useStore';
+import { formatMoney } from '../lib/currency';
 
 export function CartPage() {
   const { cart, updateQuantity, removeFromCart, cartTotal, setPage } = useStore();
@@ -51,7 +52,7 @@ export function CartPage() {
               </p>
               <p className="text-xs text-slate-500 mt-0.5">{item.variant.label}</p>
               <p className="text-primary-600 font-bold text-sm mt-1">
-                ₹{item.variant.price} <span className="text-slate-400 font-normal text-xs">per {item.variant.unit}</span>
+                {formatMoney(item.variant.price)} <span className="text-slate-400 font-normal text-xs">per {item.variant.unit}</span>
               </p>
             </div>
             <div className="flex flex-col items-end justify-between">
@@ -87,7 +88,7 @@ export function CartPage() {
           </div>
         ) : (
           <div className="bg-amber-50 text-amber-700 text-xs font-medium text-center py-2 rounded-xl">
-            Add ₹{500 - total} more for FREE delivery
+            Add {formatMoney(500 - total)} more for FREE delivery
           </div>
         )}
       </div>
@@ -97,17 +98,17 @@ export function CartPage() {
         <div className="space-y-1.5 mb-4">
           <div className="flex justify-between text-sm text-slate-600">
             <span>Subtotal</span>
-            <span>₹{total}</span>
+            <span>{formatMoney(total)}</span>
           </div>
           <div className="flex justify-between text-sm text-slate-600">
             <span>Delivery</span>
             <span className={deliveryFee === 0 ? 'text-green-600 font-medium' : ''}>
-              {deliveryFee === 0 ? 'Free' : `₹${deliveryFee}`}
+              {deliveryFee === 0 ? 'Free' : formatMoney(deliveryFee)}
             </span>
           </div>
           <div className="flex justify-between text-base font-bold text-slate-900 pt-2 border-t border-slate-100">
             <span>Total</span>
-            <span>₹{grandTotal}</span>
+            <span>{formatMoney(grandTotal)}</span>
           </div>
         </div>
 
@@ -115,7 +116,7 @@ export function CartPage() {
           onClick={() => setPage('checkout')}
           className="w-full bg-primary-500 text-white py-4 rounded-2xl font-bold text-base shadow-lg shadow-primary-200 active:scale-[0.98] transition-transform"
         >
-          Proceed to Checkout · ₹{grandTotal}
+          Proceed to Checkout · {formatMoney(grandTotal)}
         </button>
       </div>
     </div>

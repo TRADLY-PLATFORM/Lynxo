@@ -5,6 +5,8 @@ import { HomePage } from './pages/Home';
 import { CartPage } from './pages/Cart';
 import { CheckoutPage } from './pages/Checkout';
 import { TrackingPage } from './pages/Tracking';
+import { ProfilePage } from './pages/Profile';
+import { OrderHistoryPage } from './pages/OrderHistory';
 
 export default function App() {
   const { page } = useStore();
@@ -16,6 +18,8 @@ export default function App() {
       {page === 'cart'     && <CartPage />}
       {page === 'checkout' && <CheckoutPage />}
       {page === 'tracking' && <TrackingPage />}
+      {page === 'profile' && <ProfilePage />}
+      {page === 'order_history' && <OrderHistoryPage />}
 
       {/* Bottom navigation */}
       <Navigation />

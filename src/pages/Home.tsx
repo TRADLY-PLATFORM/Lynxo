@@ -1,23 +1,25 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { Search, Bell, RefreshCw } from 'lucide-react';
-import { PRODUCTS, CATEGORIES } from '../data/products';
+import { CATEGORIES } from '../data/products';
 import { ProductCard } from '../components/ProductCard';
-import { useStore } from '../store/useStore';
+import { isTerminalOrderStatus, useStore } from '../store/useStore';
+import { getTradlyCategoryIdsByLocalCategory, isTradlyConfigured } from '../lib/tradlyApi';
 
 export function HomePage() {
   const [activeCategory, setActiveCategory] = useState('all');
   const [query, setQuery] = useState('');
   const { orders, tradlyProducts, productsLoading, productsError, fetchProducts } = useStore();
+  const tradlyEnabled = isTradlyConfigured();
 
   // Debounce ref for filter changes
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Derive a Tradly category_id string from the active local category
   function getTradlyCategoryParam(catId: string): string | undefined {
-    // We don't have real Tradly category IDs mapped yet — pass undefined and let
-    // the search_key filter do the work when a specific category is selected.
     if (catId === 'all') return undefined;
-    return undefined; // Tradly category IDs not pre-known; use search instead
+    const ids = getTradlyCategoryIdsByLocalCategory(catId);
+    if (ids.length === 0) return undefined;
+    return ids.join(',');
   }
 
   useEffect(() => {
@@ -26,11 +28,7 @@ export function HomePage() {
       const params: { category_id?: string; search_key?: string } = {};
       const catParam = getTradlyCategoryParam(activeCategory);
       if (catParam) params.category_id = catParam;
-      // Use category label as search hint when not 'all'
-      if (activeCategory !== 'all' && !catParam) {
-        const cat = CATEGORIES.find((c) => c.id === activeCategory);
-        if (cat) params.search_key = query.trim() ? `${cat.label} ${query.trim()}` : cat.label;
-      } else if (query.trim()) {
+      if (query.trim()) {
         params.search_key = query.trim();
       }
       fetchProducts(params);
@@ -39,15 +37,9 @@ export function HomePage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeCategory, query]);
 
-  // Use Tradly products if available, otherwise fall back to static
-  const sourcedProducts = tradlyProducts.length > 0 ? tradlyProducts : PRODUCTS;
-
-  // For static products, apply local filtering
+  // Apply local filter UI on live Tradly products only.
   const filtered = useMemo(() => {
-    // When using Tradly products the API already filters; just return them
-    if (tradlyProducts.length > 0) return tradlyProducts;
-
-    let list = PRODUCTS;
+    let list = tradlyProducts;
     if (activeCategory !== 'all') {
       list = list.filter((p) => p.category === activeCategory);
     }
@@ -63,9 +55,9 @@ export function HomePage() {
     return list;
   }, [activeCategory, query, tradlyProducts]);
 
-  const activeOrder = orders.find((o) => o.status !== 'delivered');
+  const activeOrder = orders.find((o) => !isTerminalOrderStatus(o.statusCode));
   const hasProducts = filtered.length > 0;
-  const showError = !!productsError && tradlyProducts.length === 0 && sourcedProducts === PRODUCTS;
+  const showError = !!productsError && tradlyEnabled;
 
   return (
     <div className="page-enter pb-safe overflow-y-auto scrollbar-hide h-dvh">
@@ -121,7 +113,7 @@ export function HomePage() {
 
       {/* Active order banner */}
       {activeOrder && (
-        <ActiveOrderBanner orderId={activeOrder.id} status={activeOrder.status} />
+        <ActiveOrderBanner orderId={activeOrder.id} statusCode={activeOrder.statusCode} />
       )}
 
       {/* Error banner */}
@@ -180,14 +172,17 @@ function ProductSkeleton() {
   );
 }
 
-function ActiveOrderBanner({ orderId, status }: { orderId: string; status: string }) {
+function ActiveOrderBanner({ orderId, statusCode }: { orderId: string; statusCode: number }) {
   const { setPage } = useStore();
-  const statusLabel: Record<string, string> = {
-    placed:           '📋 Order placed',
-    confirmed:        '✅ Confirmed',
-    preparing:        '📦 Preparing your order',
-    out_for_delivery: '🚴 Out for delivery',
-    delivered:        '🎉 Delivered!',
+  const statusLabel: Record<number, string> = {
+    1: '📋 Incomplete',
+    2: '✅ Confirmed',
+    3: '📦 In progress',
+    4: '🚚 Shipped',
+    5: '🎉 Delivered',
+    6: '❌ Canceled by customer',
+    7: '❌ Canceled by admin',
+    8: '🏁 Completed',
   };
 
   return (
@@ -197,7 +192,7 @@ function ActiveOrderBanner({ orderId, status }: { orderId: string; status: strin
     >
       <div className="text-left">
         <p className="text-xs font-medium opacity-80">Active Order · {orderId}</p>
-        <p className="text-sm font-bold">{statusLabel[status] ?? status}</p>
+        <p className="text-sm font-bold">{statusLabel[statusCode] ?? `Status ${statusCode}`}</p>
       </div>
       <span className="text-lg">→</span>
     </button>
