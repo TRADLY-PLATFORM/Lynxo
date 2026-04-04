@@ -35,23 +35,22 @@ export function ProfilePage() {
     try {
       const firstName = name.trim().split(' ')[0];
       const lastName = name.trim().split(' ').slice(1).join(' ') || '.';
-      const emailLower = email.trim().toLowerCase();
-      const password = btoa(emailLower + '_lynxo_2024');
-      const legacyPassword = btoa(email.trim() + '_lynxo_2024');
+
+      // Call login/register without password - OTP based authentication
       const result = await loginOrRegisterUser(
-        email,
-        password,
+        email.trim(),
+        '', // Password not needed for OTP flow
         firstName,
         lastName,
-        legacyPassword,
       );
+
       if (result === 'logged_in') {
         setSuccess('Logged in successfully.');
       } else {
-        setSuccess('OTP sent. Please verify below.');
+        setSuccess('OTP sent to your email. Please enter below to verify.');
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not login.');
+      setError(err instanceof Error ? err.message : 'Could not login. Please try again.');
     } finally {
       setLoading(false);
     }

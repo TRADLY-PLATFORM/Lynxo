@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { MapPin, Clock, ChevronRight, User, Mail } from 'lucide-react';
 import { useStore } from '../store/useStore';
-import { getAddresses, isTradlyConfigured, TradlyApiError } from '../lib/tradlyApi';
+import { getAddresses, isTradlyConfigured, TradlyApiError, createAddress, clearTradlyCart, addToTradlyCart } from '../lib/tradlyApi';
 import { formatMoney } from '../lib/currency';
 
 const DELIVERY_SLOTS = [
@@ -20,6 +20,7 @@ export function CheckoutPage() {
     placeOrderAsync,
     setPage,
     tradlyUser,
+    tradlyCart,
     verifySession,
     loginOrRegisterUser,
     verifyAndCompleteUser,
@@ -44,9 +45,27 @@ export function CheckoutPage() {
   const [geoLoading, setGeoLoading] = useState(false);
   const [prefilledAddress, setPrefilledAddress] = useState(false);
 
-  const total = cartTotal();
-  const deliveryFee = total >= 500 ? 0 : 30;
-  const grandTotal = total + deliveryFee;
+  // Use Tradly cart totals if available, otherwise fall back to local calculation
+  const cartData = useMemo(() => {
+    if (tradlyCart && tradlyCart.cart) {
+      return {
+        total: tradlyCart.cart.total.amount,
+        grandTotal: tradlyCart.cart.grand_total.amount,
+        shippingTotal: tradlyCart.cart.shipping_total.amount,
+        pricingItems: tradlyCart.cart.pricing_items,
+      };
+    }
+    // Fallback to local calculation
+    const total = cartTotal();
+    const deliveryFee = total >= 500 ? 0 : 30;
+    return {
+      total,
+      grandTotal: total + deliveryFee,
+      shippingTotal: deliveryFee,
+      pricingItems: null,
+    };
+  }, [tradlyCart, cartTotal]);
+
   const selectedSlot = DELIVERY_SLOTS.find((s) => s.id === slot)!;
   const tradlyEnabled = isTradlyConfigured();
 
@@ -167,9 +186,66 @@ export function CheckoutPage() {
     setOtpError('');
     setLoading(true);
     try {
+      // Step 1: Verify OTP and get auth key
       await verifyAndCompleteUser(code);
-      await placeOrderAsync(pending);
-      setPage('tracking');
+
+      // Get the updated user session with auth key
+      const session = useStore.getState().tradlyUser;
+      if (!session) {
+        setOtpError('Session not established. Please try again.');
+        return;
+      }
+
+      // Step 2: Clear existing Tradly cart (ignore errors)
+      try {
+        await clearTradlyCart(session.authKey);
+      } catch {
+        // Cart might not exist yet, which is fine
+        console.log('No existing cart to clear or cart clear failed');
+      }
+
+      // Step 3: Add all items from local cart to Tradly cart
+      for (const item of cart) {
+        const listingId = parseInt(item.product.id, 10);
+
+        // Parse variant ID: null for default variants, numeric ID otherwise
+        let variantId: number | null = null;
+        if (!item.variant.id.endsWith('-default')) {
+          variantId = parseInt(item.variant.id, 10);
+        }
+
+        await addToTradlyCart(
+          listingId,
+          variantId,
+          item.quantity,
+          session.authKey,
+        );
+      }
+
+      // Step 4: Create address and get ID
+      const addressPayload = {
+        name: pending.name,
+        phone_number: '0000000000',
+        address_line_1: pending.address.split(',')[0]?.trim() || pending.address,
+        address_line_2: pending.address.split(',').slice(1).join(',').trim() || undefined,
+        landmark: pending.address.split(',')[1]?.trim() || undefined,
+        state: 'NA',
+        post_code: pending.address.match(/\b\d{4,10}\b/)?.[0] || '00000',
+        country: 'NA',
+        type: 'shipping_address' as const,
+        coordinates: pending.coordinates ?? undefined,
+      };
+
+      const tradlyAddress = await createAddress(addressPayload, session.authKey);
+
+      // Step 5: Place order with the new address ID
+      const updatedPending = {
+        ...pending,
+        addressId: tradlyAddress.id,
+      };
+
+      await placeOrderAsync(updatedPending);
+      setPage('checkout_success');
     } catch (err) {
       if (err instanceof TradlyApiError && err.status === 412) {
         setOtpError('Invalid or expired OTP. Request a fresh OTP and try again.');
@@ -212,15 +288,13 @@ export function CheckoutPage() {
 
         const firstName = name.split(' ')[0];
         const lastName = name.split(' ').slice(1).join(' ') || '.';
-        const password = btoa(emailLower + '_lynxo_2024');
-        const legacyPassword = btoa(email.trim() + '_lynxo_2024');
 
+        // Call login/register without password - OTP based authentication
         const result = await loginOrRegisterUser(
           email,
-          password,
+          '', // Password not needed for OTP flow
           firstName,
           lastName,
-          legacyPassword,
         );
 
         if (result === 'needs_verify') {
@@ -234,7 +308,10 @@ export function CheckoutPage() {
       }
 
       await placeOrderAsync(checkoutPayload);
-      setPage('tracking');
+      console.log("Order placed successfully, navigating to checkout_success");
+      // Store success flag in localStorage as backup
+      localStorage.setItem('checkout_success', 'true');
+      setPage('checkout_success');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not place order.');
     } finally {
@@ -389,17 +466,31 @@ export function CheckoutPage() {
                 </div>
               ))}
               <div className="border-t border-slate-100 pt-2 mt-2 space-y-1">
-                <div className="flex justify-between text-sm text-slate-500">
-                  <span>Subtotal</span><span>{formatMoney(total)}</span>
-                </div>
-                <div className="flex justify-between text-sm text-slate-500">
-                  <span>Delivery</span>
-                  <span className={deliveryFee === 0 ? 'text-green-600' : ''}>
-                    {deliveryFee === 0 ? 'Free' : formatMoney(deliveryFee)}
-                  </span>
-                </div>
+                {/* Show pricing items from Tradly API if available */}
+                {cartData.pricingItems && cartData.pricingItems.map((item) => (
+                  <div key={item.short_code} className="flex justify-between text-sm text-slate-500">
+                    <span>{item.name}</span>
+                    <span>{item.buying.formatted}</span>
+                  </div>
+                ))}
+
+                {/* If no pricing items, show basic breakdown */}
+                {!cartData.pricingItems && (
+                  <>
+                    <div className="flex justify-between text-sm text-slate-500">
+                      <span>Subtotal</span><span>{formatMoney(cartData.total)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm text-slate-500">
+                      <span>Delivery</span>
+                      <span className={cartData.shippingTotal === 0 ? 'text-green-600' : ''}>
+                        {cartData.shippingTotal === 0 ? 'Free' : formatMoney(cartData.shippingTotal)}
+                      </span>
+                    </div>
+                  </>
+                )}
+
                 <div className="flex justify-between font-bold text-slate-900">
-                  <span>Total</span><span>{formatMoney(grandTotal)}</span>
+                  <span>Total</span><span>{formatMoney(cartData.grandTotal)}</span>
                 </div>
               </div>
             </div>
@@ -465,7 +556,7 @@ export function CheckoutPage() {
               : 'bg-primary-500 text-white shadow-lg shadow-primary-200 active:scale-[0.98]'
           }`}
         >
-          {loading ? '⏳ Placing your order…' : `Place Order · ${formatMoney(grandTotal)}`}
+          {loading ? '⏳ Placing your order…' : `Place Order · ${formatMoney(cartData.grandTotal)}`}
         </button>
       </div>
     </div>
