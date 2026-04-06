@@ -1,48 +1,61 @@
-# Lynxo – Last-Mile Delivery App
+# Lynxo – Last-Mile Delivery & Order Management Starter Kit
 
-A modern, responsive single-page delivery app built with **React**, **TypeScript**, and **Vite**. Lynxo integrates with the **Tradly API** for real-time product listings, user authentication, cart management, and order placement.
+A production-ready, open-source starter kit for building **offline order receiving apps** for on-demand services and local commerce. Built with **React**, **TypeScript**, and **Vite**.
 
-## 🎯 Features
+## 🎯 What is Lynxo?
 
-### Core App
-- **Live Product Listings** – Fetch products from Tradly API with real-time inventory
-- **Search & Filtering** – Filter products by category and search keywords
-- **Shopping Cart** – Add items, manage quantities, view totals
-- **Checkout Flow** – Name, email, delivery address, time slot selection
-- **Order Tracking** – Real-time order status updates from Tradly API
-- **Responsive Design** – Mobile-first UI with Tailwind CSS
+Lynxo is a **fully functional frontend template** for launching:
 
-### Tradly Integration
-- **User Authentication** – Register → OTP verification → auto-login
-- **Cart Sync** – Local cart syncs to Tradly before checkout
-- **Real Order Placement** – Uses Tradly checkout API (`POST /products/v1/cart/checkout`)
-- **Dynamic Payment/Shipping Methods** – Fetches available methods at runtime
-- **Order Polling** – Auto-refreshes order status every 10 seconds
+- **🚰 Service Bookings** – Water delivery, gas cylinders, home maintenance, cleaning services
+- **🛒 Retail & Grocery Delivery** – Local grocery stores, restaurant orders, pharmacy delivery
+- **📦 Hyperlocal Commerce** – Any business needing order collection + last-mile delivery
 
-### Fallback Mode
-- **Graceful Degradation** – App works with mock data when Tradly API key is not configured
-- **Local Order Placement** – Falls back to local state if API checkout fails
+**Why Lynxo + Tradly?**
+- **Tradly** = Headless commerce platform (product listings, inventory, checkout, payments)
+- **Lynxo** = Delivery-focused customer-facing app (orders, real-time tracking, fulfillment)
+
+Together, they give you a **complete stack in days, not months**.
+
+## 🚀 Quick Start Features
+
+### 📱 Customer-Facing App
+- **Live Product Listings** – Real-time inventory from Tradly
+- **Smart Search & Filters** – Find products by category or search
+- **Easy Checkout** – Add items, set delivery slot, track order
+- **Real-time Tracking** – Order status updates every 10 seconds
+- **Mobile-First** – Works perfectly on phones and tablets
+
+### 🔗 Tradly Integration (Pre-built)
+- **Product Sync** – Automatically pulls listings, prices, inventory from Tradly
+- **User Authentication** – Email/OTP registration built-in
+- **Real Orders** – Orders sync to Tradly for fulfillment tracking
+- **Payment Methods** – Dynamically fetch available payment options
+- **Shipping Methods** – Support pickup, delivery, or custom logistics
+
+### 💪 Production Ready
+- **Offline-First** – Works with mock data; switch to live API anytime
+- **Error Handling** – Graceful fallbacks if API is unavailable
+- **TypeScript** – Full type safety across the codebase
+- **Responsive Design** – Built with Tailwind CSS (looks great on all screens)
 
 ## 🛠️ Tech Stack
 
 | Layer | Technology |
 |-------|------------|
-| **Frontend Framework** | React 19 + TypeScript |
-| **Build Tool** | Vite 7 |
-| **State Management** | Zustand 5 |
-| **UI Components** | Lucide React icons |
-| **Styling** | Tailwind CSS 3 + PostCSS |
-| **Routing** | React Router 7 |
-| **Linting** | ESLint + TypeScript ESLint |
-| **API** | Tradly Platform API (https://api.tradly.app) |
+| **Frontend** | React 19 + TypeScript |
+| **Build** | Vite 7 |
+| **State** | Zustand 5 |
+| **Styling** | Tailwind CSS 3 |
+| **Icons** | Lucide React |
+| **Commerce Backend** | Tradly Platform API |
 
 ## 📋 Prerequisites
 
 - **Node.js** ≥ 18
 - **npm** or **yarn**
-- **Tradly Account** (optional, for live API integration)
-  - Get API keys from: https://tradly.app/signup → SuperAdmin > Settings > API
-  - You'll need a **publishable key** (public key for frontend)
+- **Tradly Account** (optional, but recommended for live testing)
+  - Sign up at https://tradly.app/signup
+  - Get your **publishable API key** from SuperAdmin > Settings > API
 
 ## 🚀 Getting Started
 
@@ -54,32 +67,25 @@ cd Lynxo
 npm install
 ```
 
-### 2. Configure Tradly API (Optional)
-
-Create a `.env.local` file in the project root:
-
-```env
-# Tradly API Configuration
-VITE_TRADLY_PUBLISHABLE_KEY=pk_live_your_actual_key_here
-VITE_TRADLY_BASE_URL=https://api.tradly.app
-VITE_TRADLY_CURRENCY=USD
-```
-
-**To get your publishable key:**
-1. Sign up at https://tradly.app/signup
-2. Navigate to **SuperAdmin > Settings > API**
-3. Copy your **publishable key** (starts with `pk_live_` or `pk_test_`)
-4. Paste into `.env.local`
-
-> **Note:** Without a valid API key, the app falls back to mock product data and local order placement. You can develop and test without Tradly configured.
-
-### 3. Run Development Server
+### 2. Run in Mock Mode (No API Key Needed)
 
 ```bash
 npm run dev
 ```
 
-Open [http://localhost:5173](http://localhost:5173) in your browser.
+Opens at [http://localhost:5173](http://localhost:5173). App works with built-in demo data.
+
+### 3. Connect to Your Tradly Store (Optional)
+
+Create `.env.local`:
+
+```env
+VITE_TRADLY_PUBLISHABLE_KEY=pk_live_your_key_here
+VITE_TRADLY_BASE_URL=https://api.tradly.app
+VITE_TRADLY_CURRENCY=USD
+```
+
+Reload your app—now pulling real products from your Tradly account! 🎉
 
 ### 4. Build for Production
 
@@ -87,38 +93,26 @@ Open [http://localhost:5173](http://localhost:5173) in your browser.
 npm run build
 ```
 
-Outputs optimized build to `dist/` folder.
-
-### 5. Preview Production Build
-
-```bash
-npm run preview
-```
+Outputs optimized build to `dist/`. Ready for deployment.
 
 ## 📁 Project Structure
 
 ```
 src/
-├── pages/                    # Page components (Home, Checkout, Tracking)
+├── pages/                    # Page components
 │   ├── Home.tsx             # Product listing & search
 │   ├── Checkout.tsx         # Cart review, user info, order placement
 │   └── Tracking.tsx         # Real-time order status
 ├── components/              # Reusable UI components
-│   ├── Navigation.tsx       # App navigation bar
-│   ├── ProductSheet.tsx     # Product detail modal
-│   └── ... (other components)
 ├── store/
-│   └── useStore.ts          # Zustand store (cart, orders, Tradly user session)
+│   └── useStore.ts          # Zustand store (cart, orders, Tradly session)
 ├── lib/
-│   ├── tradlyApi.ts         # Tradly API client (all endpoints, types, adapters)
+│   ├── tradlyApi.ts         # Tradly API client
 │   └── data/
 │       └── products.ts      # Mock product data (fallback)
 ├── styles/
-│   └── index.css            # Tailwind imports & globals
-└── App.tsx                  # Root app component
-
-dist/                        # Production build (generated by `npm run build`)
-.env.local                   # Local environment (NOT committed – configure per machine)
+│   └── index.css            # Tailwind imports
+└── App.tsx                  # Root component
 ```
 
 ## 🔌 Tradly API Integration
@@ -144,7 +138,7 @@ dist/                        # Production build (generated by `npm run build`)
 
 All API requests include:
 - **Header:** `Authorization: Bearer {publishable_key}`
-- **User-specific endpoints** also include: `X-Auth-Key: {user_auth_key}` (received after login/register)
+- **User-specific endpoints** also include: `X-Auth-Key: {user_auth_key}` (received after login)
 
 ### Order Flow
 
@@ -159,116 +153,76 @@ OTP Verification (if new user)
     ↓
 Create delivery address
     ↓
-Sync local cart → POST /products/v1/cart (per item)
+Sync local cart → Tradly
     ↓
 Fetch payment & shipping methods
     ↓
-POST /products/v1/cart/checkout
-    ↓
-Order placed! (Tradly order ID stored)
-    ↓
-Poll GET /products/v1/orders/{id} every 10s
+POST checkout → Real order created
     ↓
 Track order in real-time
 ```
 
-## 🎨 UI Features
-
-### Pages
+## 🎨 App Pages
 
 **Home (`/`)**
-- Grid of product cards with images, prices, ratings
-- Category & search filters (debounced)
-- Loading skeleton & error handling
-- Product detail sheet (modal)
+- Product grid with live inventory
+- Category & search filters
+- Product detail modal
 
 **Cart (`/cart`)**
-- View cart items
-- Update quantities, remove items
-- Order summary with subtotal & delivery fee
+- View items, update quantities
+- Order summary with delivery fee
 
 **Checkout (`/checkout`)**
-- User details (name, email)
-- Delivery address textarea
-- Delivery time slot picker (6 options)
-- Order summary
-- Payment method selector (UPI, Card, CoD)
-- OTP verification screen (if registering new user)
+- User details & delivery address
+- Delivery time slot selection
+- OTP verification (if new user)
+- Order placement
 
 **Tracking (`/tracking`)**
-- Real-time order status with icons
-- Estimated delivery time
-- Tradly order reference number
-- Auto-advance fallback (if polling fails)
+- Real-time order status
+- Delivery time estimate
+- Order reference number
 
 ## 🔐 State Management (Zustand)
 
-**Cart State**
+The app uses Zustand for simple, scalable state:
+
 ```typescript
-{
-  cart: CartItem[];           // Local shopping cart
-  addToCart, removeFromCart, updateQuantity, clearCart;
-  cartTotal(), cartCount();
-}
+// Cart & Orders
+cart, addToCart, removeFromCart, cartTotal(), cartCount()
+orders, currentOrderId, placeOrderAsync()
+
+// Tradly User Session
+tradlyUser, verifySession, loginOrRegisterUser()
+
+// Products
+tradlyProducts, productsLoading, fetchProducts()
 ```
 
-**Orders State**
-```typescript
-{
-  orders: Order[];            // All user orders
-  currentOrderId: string;     // Currently tracking
-  placeOrder();               // Local order (fallback)
-  placeOrderAsync();          // Tradly order (main flow)
-  advanceOrderStatus();       // Manual status advance (fallback)
-}
-```
-
-**Tradly User Session**
-```typescript
-{
-  tradlyUser: TradlyUserSession | null;     // Logged-in user info
-  verifySession: VerifySession | null;      // OTP verification in progress
-  loginOrRegisterUser();      // Auth flow
-  verifyAndCompleteUser(code);
-}
-```
-
-**Products**
-```typescript
-{
-  tradlyProducts: Product[];  // Live listings from Tradly
-  productsLoading: boolean;
-  productsError: string | null;
-  fetchProducts(params);      // Fetch with search/filter
-}
-```
+Data persists to localStorage for returning customers.
 
 ## 📝 Environment Variables
 
-### `.env.local` (Create this file – do NOT commit)
+### `.env.local` (Create this – do NOT commit)
 
 ```env
-# Optional: Tradly API (leave empty for mock data mode)
+# Leave empty to use mock data (perfect for development)
+VITE_TRADLY_PUBLISHABLE_KEY=
+
+# Or fill in your live API key
 VITE_TRADLY_PUBLISHABLE_KEY=pk_live_your_key_here
-
-# Optional: Tradly API base URL (default: https://api.tradly.app)
 VITE_TRADLY_BASE_URL=https://api.tradly.app
-
-# Optional: Default currency (default: USD)
 VITE_TRADLY_CURRENCY=USD
 ```
 
-All variables are prefixed with `VITE_` to be exposed to the frontend (Vite convention).
-
 ## 🧪 Development
 
-### Lint Code
+### Lint
 
 ```bash
 npm run lint
 ```
-
-Checks TypeScript and ESLint rules (strict config).
 
 ### Build Check
 
@@ -276,109 +230,58 @@ Checks TypeScript and ESLint rules (strict config).
 npm run build
 ```
 
-Compiles TypeScript and optimizes with Vite. Runs as part of CI/CD.
-
-### Code Format
-
-The project uses ESLint but not Prettier. You can configure Prettier in `eslint.config.js` if needed.
-
-## 🚀 Deployment
-
-### Vercel (Recommended)
-
-1. Connect your GitHub repo to Vercel
-2. Add environment variable in Vercel dashboard:
-   - `VITE_TRADLY_PUBLISHABLE_KEY` = your live API key
-3. Deploy – automatically builds and deploys on push
-4. (Optional) Add custom domain
-
-### Docker
-
-```dockerfile
-FROM node:18-alpine
-WORKDIR /app
-COPY package*.json .
-RUN npm install
-COPY . .
-RUN npm run build
-EXPOSE 3000
-CMD ["npm", "run", "preview"]
-```
-
-### Manual (Static Hosting)
+### Preview
 
 ```bash
-npm run build
-# Upload `dist/` folder to any static host (GitHub Pages, Netlify, S3, etc.)
+npm run preview
 ```
-
-## 🐛 Troubleshooting
-
-### Issue: "Tradly API not configured"
-- **Cause:** `VITE_TRADLY_PUBLISHABLE_KEY` is missing or set to placeholder
-- **Fix:** Add a valid key to `.env.local` and restart `npm run dev`
-- **Workaround:** App still works with mock data
-
-### Issue: Products not loading
-- **Cause:** API key invalid or network issue
-- **Fix:** Check browser console for errors; verify key is correct
-- **Check:** Visit https://api.tradly.app/products/v1/listings in browser (should show JSON)
-
-### Issue: Checkout fails silently
-- **Cause:** User not authenticated or missing address
-- **Fix:** Ensure name, email, and address are filled in
-- **Fallback:** App creates local order even if Tradly API fails
-
-### Issue: Build errors with TypeScript
-- **Cause:** Strict `erasableSyntaxOnly` and `noUnusedParameters` settings
-- **Fix:** Don't use constructor parameter properties (`public x`); use explicit fields
-- **Example:** ❌ `constructor(public x: string)` → ✅ `public x: string; constructor(x) { this.x = x; }`
 
 ## 📚 Key Files
 
 | File | Purpose |
 |------|---------|
-| `src/lib/tradlyApi.ts` | Tradly API client – all types, endpoints, adapters |
-| `src/store/useStore.ts` | Zustand store – cart, orders, Tradly session |
-| `src/pages/Home.tsx` | Product listing with live search & filters |
-| `src/pages/Checkout.tsx` | Order placement with Tradly auth flow |
-| `src/pages/Tracking.tsx` | Real-time order tracking (10s polling) |
-| `.env.local` | Local config (YOUR API KEY – never commit) |
+| `src/lib/tradlyApi.ts` | Tradly API client + types |
+| `src/store/useStore.ts` | Cart, orders, auth state |
+| `src/pages/Home.tsx` | Product listing + filters |
+| `src/pages/Checkout.tsx` | Order placement flow |
+| `src/pages/Tracking.tsx` | Real-time order tracking |
+| `.env.local` | YOUR API KEY (never commit) |
 
-## 📖 Further Reading
+## 🐛 Troubleshooting
 
-- **Tradly API Docs:** https://developer.tradly.app
+### Products not showing?
+1. Check `.env.local` – is `VITE_TRADLY_PUBLISHABLE_KEY` set?
+2. If empty, app uses mock data (expected)
+3. If set, check browser console for API errors
+4. Verify API key is valid at https://tradly.app
+
+### Checkout failing?
+1. Ensure name, email, and address are filled
+2. Check browser console for API errors
+3. App falls back to local orders if API fails
+
+### TypeScript errors on build?
+- Don't use `public x: string` in constructors
+- Use explicit fields: `public x: string; constructor(x) { this.x = x; }`
+
+## 📖 Learn More
+
+- **Tradly Docs:** https://developer.tradly.app
 - **React Docs:** https://react.dev
 - **Vite Docs:** https://vite.dev
 - **Zustand Docs:** https://github.com/pmndrs/zustand
 - **Tailwind Docs:** https://tailwindcss.com
 
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/my-feature`)
-3. Commit changes (`git commit -m "feat: add my feature"`)
-4. Push to branch (`git push origin feature/my-feature`)
-5. Open a Pull Request
-
-### Code Standards
-
-- Use **TypeScript** – strict mode enforced
-- Follow **ESLint** rules – run `npm run lint` before committing
-- Write **descriptive commit messages** (conventional commits)
-- Test with **mock data** first (no Tradly key required)
-
 ## 📄 License
 
-This project is part of the TRADLY-PLATFORM ecosystem. See `LICENSE` file for details.
+Part of the TRADLY-PLATFORM ecosystem. See `LICENSE` file.
 
 ## 💬 Support
 
-For issues, questions, or suggestions:
-- Open an issue on GitHub
-- Check Tradly API docs: https://developer.tradly.app
-- Contact TRADLY support
+- Issues: GitHub issues on this repo
+- Tradly API help: https://developer.tradly.app
+- Community: TRADLY platform forums
 
 ---
 
-**Built with ❤️ using React, TypeScript, and Vite**
+**Lynxo = Template. Tradly = Backend. Your app = Built! 🚀**
