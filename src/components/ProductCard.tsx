@@ -62,7 +62,10 @@ export function ProductCard({ product }: ProductCardProps) {
 				{/* Price + CTA */}
 				<div className="flex items-center justify-between mt-2">
 					<p className="text-primary-600 font-bold text-sm">
-						From {formatMoney(product.basePrice)}
+						{product?.variants?.length > 0
+							? "From"
+							: "Price"}{" "}
+						{formatMoney(product.basePrice)}
 					</p>
 					<button
 						onClick={(e) => {

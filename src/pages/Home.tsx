@@ -1,12 +1,8 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { Search, Bell, RefreshCw } from "lucide-react";
-import { CATEGORIES } from "../data/products";
 import { ProductCard } from "../components/ProductCard";
 import { isTerminalOrderStatus, useStore } from "../store/useStore";
-import {
-	getTradlyCategoryIdsByLocalCategory,
-	isTradlyConfigured,
-} from "../lib/tradlyApi";
+import { isTradlyConfigured } from "../lib/tradlyApi";
 
 export function HomePage() {
 	const [activeCategory, setActiveCategory] = useState("all");
@@ -17,19 +13,12 @@ export function HomePage() {
 		productsLoading,
 		productsError,
 		fetchProducts,
+		categories,
 	} = useStore();
 	const tradlyEnabled = isTradlyConfigured();
 
 	// Debounce ref for filter changes
 	const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-	// Derive a Tradly category_id string from the active local category
-	function getTradlyCategoryParam(catId: string): string | undefined {
-		if (catId === "all") return undefined;
-		const ids = getTradlyCategoryIdsByLocalCategory(catId);
-		if (ids.length === 0) return undefined;
-		return ids.join(",");
-	}
 
 	useEffect(() => {
 		if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -38,8 +27,10 @@ export function HomePage() {
 				category_id?: string;
 				search_key?: string;
 			} = {};
-			const catParam = getTradlyCategoryParam(activeCategory);
-			if (catParam) params.category_id = catParam;
+			// Pass category ID directly to API (categories come from Tradly API)
+			if (activeCategory !== "all") {
+				params.category_id = activeCategory;
+			}
 			if (query.trim()) {
 				params.search_key = query.trim();
 			}
@@ -52,11 +43,10 @@ export function HomePage() {
 	}, [activeCategory, query]);
 
 	// Apply local filter UI on live Tradly products only.
+	// Note: API already filters by category_id, so no need to filter locally by category
 	const filtered = useMemo(() => {
 		let list = tradlyProducts;
-		if (activeCategory !== "all") {
-			list = list.filter((p) => p.category === activeCategory);
-		}
+		// Just filter by search query if present
 		if (query.trim()) {
 			const q = query.toLowerCase();
 			list = list.filter(
@@ -69,7 +59,7 @@ export function HomePage() {
 			);
 		}
 		return list;
-	}, [activeCategory, query, tradlyProducts]);
+	}, [query, tradlyProducts]);
 
 	const activeOrder = orders.find(
 		(o) => !isTerminalOrderStatus(o.statusCode),
@@ -125,7 +115,7 @@ export function HomePage() {
 
 				{/* Category chips */}
 				<div className="flex gap-2 px-4 pb-3 overflow-x-auto scrollbar-hide">
-					{CATEGORIES.map((c) => (
+					{categories.map((c) => (
 						<button
 							key={c.id}
 							onClick={() =>

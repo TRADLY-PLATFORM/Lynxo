@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { Product, Variant } from "../data/products";
+import type { Category } from "../data/products";
 import { setCurrencyCode } from "../lib/currency";
 import {
 	isTradlyConfigured,
@@ -10,6 +11,7 @@ import {
 	getCategories,
 	seedCategoryMap,
 	adaptListingToProduct,
+	adaptTradlyCategoriesToLocal,
 	loginUser,
 	registerUser,
 	signInUser,
@@ -193,6 +195,12 @@ function clearAuthSessionStorage(): void {
 interface AppState {
 	page: AppPage;
 	setPage: (p: AppPage) => void;
+
+	// Categories from API
+	categories: Category[];
+	categoriesLoading: boolean;
+	categoriesError: string | null;
+	fetchCategories: () => Promise<void>;
 
 	cart: CartItem[];
 	addToCart: (product: Product, variant: Variant) => void;
@@ -481,6 +489,44 @@ export const useStore = create<AppState>()(
 		(set, get) => ({
 			page: "home",
 			setPage: (page) => set({ page }),
+
+			// Categories state - start with just "All", API will populate the rest
+			categories: [{ id: "all", label: "All", emoji: "🛍️" }],
+			categoriesLoading: false,
+			categoriesError: null,
+			fetchCategories: async () => {
+				if (!isTradlyConfigured()) {
+					set({
+						categoriesError: "Tradly API not configured.",
+						categoriesLoading: false,
+					});
+					return;
+				}
+
+				set({ categoriesLoading: true, categoriesError: null });
+				try {
+					const tradlyCategories = await getCategories();
+					const localCategories = adaptTradlyCategoriesToLocal(tradlyCategories);
+
+					// Seed the category map for product filtering
+					seedCategoryMap(tradlyCategories);
+
+					set({
+						categories: localCategories,
+						categoriesLoading: false,
+						categoriesError: null,
+					});
+				} catch (err) {
+					const message =
+						err instanceof Error
+							? err.message
+							: "Failed to load categories";
+					set({
+						categoriesError: message,
+						categoriesLoading: false,
+					});
+				}
+			},
 
 			cart: [],
 			addToCart: async (product, variant) => {
@@ -1531,11 +1577,11 @@ export const useStore = create<AppState>()(
 				}
 				set({ productsLoading: true, productsError: null });
 				try {
+					// Fetch categories along with products
 					try {
-						const cats = await getCategories();
-						seedCategoryMap(cats);
+						await get().fetchCategories();
 					} catch {
-						// non-fatal
+						// non-fatal - continue with products
 					}
 
 					const listings = await getListings(params);
