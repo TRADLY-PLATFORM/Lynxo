@@ -331,9 +331,11 @@ export async function getListingVariants(
 
 export async function getCategories(): Promise<TradlyCategory[]> {
 	const res = await request<{
-		categories: TradlyCategory[];
-		total_records: number;
-		page: number;
+		data: {
+			categories: TradlyCategory[];
+			total_records: number;
+			page: number;
+		};
 	}>("/v1/categories?parent=0&type=listings&page=1&per_page=20");
 	return res.data.categories;
 }

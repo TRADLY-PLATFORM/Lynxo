@@ -118,7 +118,6 @@ export function CartPage() {
 						);
 					const maxQuantity =
 						cartDetail?.listing.max_quantity;
-					const stock = cartDetail?.listing.stock ?? 0;
 
 					return (
 						<div

@@ -12,7 +12,6 @@ import {
 	seedCategoryMap,
 	adaptListingToProduct,
 	adaptTradlyCategoriesToLocal,
-	loginUser,
 	registerUser,
 	signInUser,
 	verifyUser,
@@ -35,7 +34,6 @@ import type {
 	TradlyCartResponse,
 	TradlyPaymentMethod,
 	TradlyOrder,
-	TradlyUser,
 	TradlyVariant,
 } from "../lib/tradlyApi";
 
