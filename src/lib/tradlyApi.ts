@@ -65,10 +65,29 @@ export interface TradlyVariant {
 	variant_values: string[];
 }
 
-export interface TradlyCategory {
+export interface TradlyCategoryHierarchy {
 	id: number;
 	name: string;
-	parent_id?: number | null;
+	level: number;
+	slug: string;
+}
+
+export interface TradlyCategory {
+	id: number;
+	parent: number;
+	type: string;
+	active: boolean;
+	image_path: string;
+	order_by: number;
+	description: string;
+	slug: string;
+	meta_title: string;
+	meta_description: string;
+	meta_keyword: string;
+	metadata: Record<string, unknown>;
+	sub_category: TradlyCategory[];
+	name: string;
+	hierarchy: TradlyCategoryHierarchy[];
 }
 
 interface TradlyTenantCurrency {
@@ -311,9 +330,13 @@ export async function getListingVariants(
 }
 
 export async function getCategories(): Promise<TradlyCategory[]> {
-	const res = await request<{ data: { categories: TradlyCategory[] } }>(
-		"/v1/categories?page=1&per_page=50&parent=0",
-	);
+	const res = await request<{
+		data: {
+			categories: TradlyCategory[];
+			total_records: number;
+			page: number;
+		};
+	}>("/v1/categories?parent=0&type=listings&page=1&per_page=20");
 	return res.data.categories;
 }
 
@@ -887,5 +910,56 @@ export function adaptListingToProduct(listing: TradlyListing): Product {
 			? listing.rating_data.rating_average >= 4.5
 			: false,
 	};
+}
+
+// Category emoji mapping based on category name/keywords
+const CATEGORY_EMOJI_MAP: Array<[RegExp, string]> = [
+	[/water|aqua|mineral|hydration/i, "💧"],
+	[/gas|lpg|fuel|cylinder|energy/i, "🔥"],
+	[/food|meal|lunch|dinner|restaurant|kitchen/i, "🍱"],
+	[/grocery|vegetable|fruit|veg|staple/i, "🥦"],
+	[/service|repair|clean|maintenance|home.?service/i, "🔧"],
+	[/physician|doctor|medical|health/i, "🏥"],
+	[/dental|dentist|tooth/i, "🦷"],
+	[/pharmacy|medicine|drug/i, "💊"],
+	[/beauty|salon|spa|cosmetic/i, "💅"],
+	[/electronic|gadget|mobile|phone/i, "📱"],
+	[/fashion|clothing|wear|dress/i, "👔"],
+	[/sports|fitness|gym|exercise/i, "⚽"],
+	[/education|tutor|learn|course/i, "📚"],
+	[/automotive|car|vehicle|transport/i, "🚗"],
+	[/pet|animal|veterinary/i, "🐕"],
+];
+
+function pickCategoryEmoji(name: string): string {
+	const text = name.toLowerCase();
+	for (const [re, emoji] of CATEGORY_EMOJI_MAP) {
+		if (re.test(text)) return emoji;
+	}
+	return "📦";
+}
+
+/**
+ * Adapt Tradly categories to local Category format
+ * Returns an array of Category objects compatible with the UI
+ */
+export function adaptTradlyCategoriesToLocal(
+	tradlyCategories: TradlyCategory[],
+): Array<{ id: string; label: string; emoji: string }> {
+	// Always include "All" as the first category
+	const localCategories = [{ id: "all", label: "All", emoji: "🛍️" }];
+
+	// Map each Tradly category to local format
+	for (const cat of tradlyCategories) {
+		if (!cat.active) continue; // Skip inactive categories
+
+		localCategories.push({
+			id: String(cat.id),
+			label: cat.name,
+			emoji: pickCategoryEmoji(cat.name),
+		});
+	}
+
+	return localCategories;
 }
 
